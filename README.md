@@ -115,26 +115,26 @@ jobs: !include [conf.d/*.conf]
   * `gzip`(logicals): compress or not compress the archive 
   * `skip_backup_rotate`(**Only for *external* type**)(optional)(logicals): If creation of a local copy is not required, for example, in case of copying data to a remote server, rotation of local backups may be skipped with this option.
 * `storages`(objects array) specify one storage or array of storages to store archive:
- * `storage`: type of storage. It can take the following values:
-   * *local*, *scp*, *ftp*, *smb* (via cifs), *nfs*, *webdav*, *s3*
- * `enable`(logicals): enable or disable storage
- * `backup_dir`: directory for storing backups. **IMPORTANT** For the following storages - *scp*, *nfs*, the directory actually acts as a mount resource (used directly in the mount command), so you need to make sure it exists on the remote server or `remote_mount_point` is defined, otherwise there will be an error. For other storages - *local*, *ftp*, *smb*, *webdav*, *s3* this directory is already inside the environment, where we get after mounting the resource, so it can be created by the program itself.
- * `remote_mount_point`(**Only for *scp* and *nfs* storages**)(optional): Remote mounting point directory. This directory will be used as the mount resource, so you need to make sure that it exists on the remote server and is user `user` owned, otherwise an error will occur.  The default is `backup_dir`.
- * `host`: storage host.
- * `port`: storage port.
- * `user`: storage user.
- * `password`: storage password.
- * `extra_keys`(**Only for *nfs* storage**): extra keys for mount command.
- * `bucket_name`(**Only for *s3* storage**): bucket name.
- * `access_key_id`(**Only for *s3* storage**)(optional): S3 compatibility access key.
- * `secret_access_key`(**Only for *s3* storage**)(optional): S3 compatibility secret key.
- * `s3fs_opts`(**Only for *s3* storage**): extra keys for mount s3fs command. For example, for loading on custom s3 compatibility API server you need to add the following options '-o url=https://<custom_endpoint_url> -o use_path_request_style'.
- * `path_to_key`(**Only for *scp* storage**): path to ssh private key.
- * `share`(**Only for *smb* storage**): share.
- * `store`(objects, required for all after exception *inc_files* type backup):
-   * `days`: days to store backups.
-   * `weeks`: weeks to store backups.
-   * `month`: months to store backups.
+  * `storage`: type of storage. It can take the following values:
+    * *local*, *scp*, *ftp*, *smb* (via cifs), *nfs*, *webdav*, *s3*
+  * `enable`(logicals): enable or disable storage
+  * `backup_dir`: directory for storing backups. **IMPORTANT** For the following storages - *scp*, *nfs*, the directory actually acts as a mount resource (used directly in the mount command), so you need to make sure it exists on the remote server or `remote_mount_point` is defined, otherwise there will be an error. For other storages - *local*, *ftp*, *smb*, *webdav*, *s3* this directory is already inside the environment, where we get after mounting the resource, so it can be created by the program itself.
+  * `remote_mount_point`(**Only for *scp* and *nfs* storages**)(optional): Remote mounting point directory. This directory will be used as the mount resource, so you need to make sure that it exists on the remote server and is user `user` owned, otherwise an error will occur.  The default is `backup_dir`.
+  * `host`: storage host.
+  * `port`: storage port.
+  * `user`: storage user.
+  * `password`: storage password.
+  * `extra_keys`(**Only for *nfs* storage**): extra keys for mount command.
+  * `bucket_name`(**Only for *s3* storage**): bucket name.
+  * `access_key_id`(**Only for *s3* storage**)(optional): S3 compatibility access key.
+  * `secret_access_key`(**Only for *s3* storage**)(optional): S3 compatibility secret key.
+  * `s3fs_opts`(**Only for *s3* storage**): extra keys for mount s3fs command. For example, for loading on custom s3 compatibility API server you need to add the following options '-o url=https://<custom_endpoint_url> -o use_path_request_style'.
+  * `path_to_key`(**Only for *scp* storage**): path to ssh private key.
+  * `share`(**Only for *smb* storage**): share.
+  * `store`(objects, required for all after exception *inc_files* type backup):
+    * `days`: days to store backups.
+    * `weeks`: weeks to store backups.
+    * `month`: months to store backups.
 
 ## Useful information
 
