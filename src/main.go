@@ -2,19 +2,26 @@ package main
 
 import (
 	"fmt"
+	"nxs-backup/modules/cmd"
 	"os"
 	"syscall"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/sirupsen/logrus"
 
-	"nxs-backup/src/ctx"
-	"nxs-backup/src/ctx/args"
+	"nxs-backup/ctx"
+	"nxs-backup/ctx/args"
 )
 
 func main() {
 
-	commands := []args.Command{}
+	commands := []args.Command{
+		{
+			Cmd:         "start",
+			ArgsHandler: args.StartRead,
+			CmdHandler:  cmd.Start,
+		},
+	}
 
 	// Read command line arguments
 	a := args.Read(commands)
@@ -31,12 +38,6 @@ func main() {
 	})
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	// If command handler was not found
-	if a.CmdHandler == nil {
-		fmt.Println("empty command handler")
 		os.Exit(1)
 	}
 

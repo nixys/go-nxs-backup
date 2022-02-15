@@ -2,7 +2,7 @@ package args
 
 import (
 	"fmt"
-	"nxs-backup/src/misc"
+	"nxs-backup/misc"
 	"os"
 	"strings"
 
@@ -39,7 +39,7 @@ func Read(commands []Command) Args {
 
 	args := getopt.New()
 
-	args.SetParameters("[commands ...]")
+	args.SetParameters("[cmd ...]")
 
 	args.BoolLong(
 		"help",
@@ -80,14 +80,18 @@ func Read(commands []Command) Args {
 	subArgs = append(subArgs, tail...)
 
 	// If command was not found
-	//if c.ArgsHandler == nil {
-	//	fmt.Println("Unknown command: ", tail)
-	//	helpPrint(args)
-	//	os.Exit(1)
-	//}
-
+	if c.ArgsHandler == nil {
+		fmt.Println("Unknown command: ", tail)
+		helpPrint(args)
+		os.Exit(1)
+	}
+	// If command handler was not found
+	if c.CmdHandler == nil {
+		fmt.Println("empty command handler")
+		os.Exit(1)
+	}
 	a.CmdHandler = c.CmdHandler
-	//a.Values = c.ArgsHandler(subArgs)
+	a.Values = c.ArgsHandler(subArgs)
 
 	return a
 }
@@ -131,7 +135,7 @@ Additional description
 
   Command line tools for nixy-server.
 
-  Following commands are available (use autocomplete):
+  Following cmd are available (use autocomplete):
 
 	- project
 	- script`

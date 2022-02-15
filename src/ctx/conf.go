@@ -9,18 +9,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	"nxs-backup/src/misc"
+	"nxs-backup/misc"
 )
 
 type confOpts struct {
 	ServerName      string   `conf:"server_name" conf_extraopts:"required"`
 	Mail            mailConf `conf:"mail" conf_extraopts:"required"`
-	Jobs            []job    `conf:"jobs"`
+	Jobs            []Job    `conf:"jobs"`
 	IncludeJobsCfgs []string `conf:"include_jobs_configs"`
 	LogFile         string   `conf:"logfile" conf_extraopts:"default=stdout"`
 	LogLevel        string   `conf:"loglevel" conf_extraopts:"default=info"`
 	PidFile         string   `conf:"pidfile"`
 	ConfPath        string
+	FilesJobs       map[string]Job
+	DBsJobs         map[string]Job
+	ExtJobs         map[string]Job
 }
 
 type mailConf struct {
@@ -35,7 +38,7 @@ type mailConf struct {
 	MessageLevel string   `conf:"message_level" conf_extraopts:"default=error"`
 }
 
-type job struct {
+type Job struct {
 	JobName              string    `conf:"job_name" conf_extraopts:"required"`
 	JobType              string    `conf:"type" conf_extraopts:"required"`
 	TmpDir               string    `conf:"tmp_dir" conf_extraopts:"required"`
@@ -145,7 +148,7 @@ func (c *confOpts) jobsRead() error {
 					return err
 				}
 				if match && !info.IsDir() {
-					var j job
+					var j Job
 
 					err = conf.Load(&j, conf.Settings{
 						ConfPath:    fp,
@@ -172,16 +175,27 @@ func (c *confOpts) jobsRead() error {
 func (c *confOpts) validate() error {
 
 	var errs []string
-	allowedJobTypes := []string{
+
+	c.FilesJobs = make(map[string]Job)
+	c.DBsJobs = make(map[string]Job)
+	c.ExtJobs = make(map[string]Job)
+
+	allowedFilesJobTypes := []string{
 		"desc_files",
 		"inc_files",
-		"external",
+	}
+
+	allowedDBsJobTypes := []string{
 		"mysql",
 		"mysql_xtrabackup",
 		"postgresql",
 		"postgresql_basebackup",
 		"mongodb",
 		"redis",
+	}
+
+	allowedExtJobTypes := []string{
+		"external",
 	}
 
 	allowedStorageTypes := []string{
@@ -211,8 +225,14 @@ func (c *confOpts) validate() error {
 			errs = append(errs, fmt.Sprintf("  empty job name is unacceptable"))
 		}
 
-		if !contains(allowedJobTypes, j.JobType) {
-			errs = append(errs, fmt.Sprintf("  unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(allowedJobTypes, ", ")))
+		if contains(allowedFilesJobTypes, j.JobType) {
+			c.FilesJobs[j.JobName] = j
+		} else if contains(allowedDBsJobTypes, j.JobType) {
+			c.DBsJobs[j.JobName] = j
+		} else if contains(allowedExtJobTypes, j.JobType) {
+			c.ExtJobs[j.JobName] = j
+		} else {
+			errs = append(errs, fmt.Sprintf("  unknown job type \"%s\".", j.JobType))
 		}
 
 		for _, s := range j.Storages {

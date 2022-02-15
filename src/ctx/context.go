@@ -5,7 +5,7 @@ import (
 	"os"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"nxs-backup/src/ctx/args"
+	"nxs-backup/ctx/args"
 )
 
 // Ctx defines application custom context
