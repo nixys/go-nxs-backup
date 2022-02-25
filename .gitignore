@@ -3,6 +3,7 @@
 /.pydevproject
 /.settings
 /tmp
+/test
 /objs
 _CPack_Packages
 CMakeCache.txt

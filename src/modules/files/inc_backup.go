@@ -1,4 +1,4 @@
-package files_backup
+package files
 
 import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -6,7 +6,7 @@ import (
 	"nxs-backup/ctx"
 )
 
-func makeDescBackup(appCtx *appctx.AppContext, job ctx.Job) error {
+func makeIncBackup(appCtx *appctx.AppContext, job ctx.Job) error {
 
 	return nil
 }

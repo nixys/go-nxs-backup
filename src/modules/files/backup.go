@@ -1,4 +1,4 @@
-package files_backup
+package files
 
 import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -16,7 +16,7 @@ func MakeBackup(appCtx *appctx.AppContext) []error {
 		case "desc_files":
 			err := makeDescBackup(appCtx, job)
 			if err != nil {
-				errs = append(errs, err)
+				errs = append(errs, err...)
 			}
 		case "inc_files":
 			err := makeIncBackup(appCtx, job)

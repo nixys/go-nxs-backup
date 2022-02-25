@@ -8,7 +8,7 @@ import (
 
 	"nxs-backup/ctx"
 	"nxs-backup/ctx/args"
-	"nxs-backup/modules/files_backup"
+	"nxs-backup/modules/files"
 )
 
 func Start(appCtx *appctx.AppContext) error {
@@ -21,7 +21,7 @@ func Start(appCtx *appctx.AppContext) error {
 
 	switch a.JobName {
 	case "all":
-		errList := files_backup.MakeBackup(appCtx)
+		errList := files.MakeBackup(appCtx)
 		if len(errList) > 0 {
 			for _, err := range errList {
 				errs = append(errs, err.Error())
@@ -30,7 +30,7 @@ func Start(appCtx *appctx.AppContext) error {
 	case "databases":
 		fmt.Println("databases")
 	case "files":
-		errList := files_backup.MakeBackup(appCtx)
+		errList := files.MakeBackup(appCtx)
 		if len(errList) > 0 {
 			for _, err := range errList {
 				errs = append(errs, err.Error())
