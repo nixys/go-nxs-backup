@@ -107,15 +107,23 @@ func (j DescFilesJob) MakeBackup(appCtx *appctx.AppContext) (errs []error) {
 					dumpedOfs[backupFileName] = tmpBackupFullPath
 				}
 				if j.DeferredCopyingLevel <= 0 {
-					continue // do rotate
+					misc.BackupDelivery(dumpedOfs, j.Storages)
 				}
 			}
 			if j.DeferredCopyingLevel == 1 {
-				continue
+				misc.BackupDelivery(dumpedOfs, j.Storages)
 			}
 		}
 		if j.DeferredCopyingLevel >= 2 {
-			continue
+			misc.BackupDelivery(dumpedOfs, j.Storages)
+		}
+	}
+
+	files, _ := ioutil.ReadDir(tmpDirPath)
+	if len(files) == 0 {
+		err = os.Remove(tmpDirPath)
+		if err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return

@@ -1,10 +1,11 @@
 package backup
 
 import (
+	"sort"
+
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/storage"
-	"sort"
 )
 
 type JobSettings struct {
@@ -74,30 +75,33 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job) {
 		}
 		sort.Sort(interfaces.SortByLocal(sts))
 
-		switch j.JobType {
-		case "desc_files":
-			var srcs []DescFilesSource
-			for _, s := range j.Sources {
-				srcs = append(srcs, DescFilesSource{
-					Targets:  s.Target,
-					Excludes: s.Excludes,
-					Gzip:     s.Gzip,
+		if len(sts) > 0 {
+
+			switch j.JobType {
+			case "desc_files":
+				var srcs []DescFilesSource
+				for _, s := range j.Sources {
+					srcs = append(srcs, DescFilesSource{
+						Targets:  s.Target,
+						Excludes: s.Excludes,
+						Gzip:     s.Gzip,
+					})
+				}
+
+				jobs = append(jobs, DescFilesJob{
+					JobName:              j.JobName,
+					TmpDir:               j.TmpDir,
+					DumpCmd:              j.DumpCmd,
+					SafetyBackup:         j.SafetyBackup,
+					DeferredCopyingLevel: j.DeferredCopyingLevel,
+					IncMonthsToStore:     j.IncMonthsToStore,
+					Sources:              srcs,
+					Storages:             sts,
 				})
+			// "external" as default
+			default:
+
 			}
-
-			jobs = append(jobs, DescFilesJob{
-				JobName:              j.JobName,
-				TmpDir:               j.TmpDir,
-				DumpCmd:              j.DumpCmd,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				IncMonthsToStore:     j.IncMonthsToStore,
-				Sources:              srcs,
-				Storages:             sts,
-			})
-		// "external" as default
-		default:
-
 		}
 	}
 

@@ -3,7 +3,6 @@ package ctx
 import (
 	"fmt"
 	"net/mail"
-	"nxs-backup/modules/backup"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	conf "github.com/nixys/nxs-go-conf"
 
 	"nxs-backup/misc"
+	"nxs-backup/modules/backup"
 )
 
 type confOpts struct {

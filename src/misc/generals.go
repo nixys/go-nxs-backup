@@ -6,6 +6,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"nxs-backup/interfaces"
+)
+
+const (
+	MonthlyBackupDay = "1"
+	WeeklyBackupDay  = "7"
 )
 
 func GetBackupFileName(regex, target string) string {
@@ -49,13 +56,20 @@ func GetDateTimeNow(unit string) (res string) {
 	return res
 }
 
+func GetSubPath() (res string) {
+	if GetDateTimeNow("dom") == MonthlyBackupDay {
+		return "monthly"
+	} else if GetDateTimeNow("dow") == WeeklyBackupDay {
+		return "weekly"
+	}
+	return "daily"
+}
+
 func NeedToMakeBackup(day, week, month int) bool {
-	backupDom := "1"
-	backupDow := "7"
 
 	if day > 0 ||
-		(week > 0 && GetDateTimeNow("dow") == backupDow) ||
-		(month > 0 && GetDateTimeNow("dom") == backupDom) {
+		(week > 0 && GetDateTimeNow("dow") == WeeklyBackupDay) ||
+		(month > 0 && GetDateTimeNow("dom") == MonthlyBackupDay) {
 		return true
 	}
 
@@ -77,4 +91,22 @@ func GetBackupFullPath(dirPath, baseName, baseExtension, prefix string, gZip boo
 	fullPath = filepath.Join(dirPath, fileName)
 
 	return fullPath
+}
+
+func BackupDelivery(ofs map[string]string, storages []interfaces.Storage) (errs []error) {
+
+	for i, st := range storages {
+		moveOfs := false
+		if i == len(storages)-1 && st.IsLocal() == 1 {
+			moveOfs = true
+		}
+
+		for o, filePath := range ofs {
+			err := st.CopyFile(filePath, o, moveOfs)
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return
 }

@@ -3,6 +3,10 @@ package storage
 import (
 	"io"
 	"os"
+	"path"
+	"path/filepath"
+
+	"nxs-backup/misc"
 )
 
 type Retention struct {
@@ -26,7 +30,13 @@ func (l Local) CopyFile(tmpBackupPath, ofs string, move bool) (err error) {
 	}
 	defer source.Close()
 
-	destination, err := os.Create(l.BackupPath)
+	dstPath := path.Join(l.BackupPath, ofs, misc.GetSubPath(), filepath.Base(tmpBackupPath))
+	err = os.MkdirAll(filepath.Dir(dstPath), os.ModePerm)
+	if err != nil {
+		return
+	}
+
+	destination, err := os.Create(dstPath)
 	if err != nil {
 		return
 	}
