@@ -1,4 +1,4 @@
-package files
+package backup
 
 import (
 	"archive/tar"
@@ -12,25 +12,51 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
-	"nxs-backup/ctx"
+	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 )
 
-func makeDescBackup(appCtx *appctx.AppContext, job ctx.Job) (errs []error) {
+type DescFilesJob struct {
+	JobName              string
+	TmpDir               string
+	DumpCmd              string
+	SafetyBackup         bool
+	DeferredCopyingLevel int
+	IncMonthsToStore     int
+	Sources              []DescFilesSource
+	Storages             []interfaces.Storage
+}
+
+type DescFilesSource struct {
+	Targets  []string
+	Excludes []string
+	Gzip     bool
+}
+
+func (j DescFilesJob) GetJobType() string {
+	return "desc_files"
+}
+
+func (j DescFilesJob) MakeBackup(appCtx *appctx.AppContext) (errs []error) {
 
 	//cc := appCtx.CustomCtx().(*ctx.Ctx)
-	tmpDirPath := path.Join(job.TmpDir, fmt.Sprintf("%s_%s", job.JobType, misc.GetDateTimeNow("")))
+	tmpDirPath := path.Join(j.TmpDir, fmt.Sprintf("%s_%s", j.GetJobType(), misc.GetDateTimeNow("")))
 	err := os.MkdirAll(tmpDirPath, os.ModePerm)
 	if err != nil {
+		appCtx.Log().Error(err)
 		return []error{err}
 	}
 
-	for _, source := range job.Sources {
+	dumpedOfs := make(map[string]string)
 
-		for _, tPattern := range source.Target {
+	for _, source := range j.Sources {
+
+		for _, tPattern := range source.Targets {
 			targetFiles, err := filepath.Glob(tPattern)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s. Pattern: %s", err, tPattern))
+				e := fmt.Errorf("%s. Pattern: %s", err, tPattern)
+				appCtx.Log().Error(e)
+				errs = append(errs, e)
 				continue
 			}
 
@@ -39,7 +65,9 @@ func makeDescBackup(appCtx *appctx.AppContext, job ctx.Job) (errs []error) {
 				for _, exPattern := range source.Excludes {
 					match, err := filepath.Match(exPattern, ofs)
 					if err != nil {
-						errs = append(errs, fmt.Errorf("%s. Pattern: %s", err, exPattern))
+						e := fmt.Errorf("%s. Pattern: %s", err, exPattern)
+						appCtx.Log().Error(e)
+						errs = append(errs, e)
 						continue
 					}
 					if match {
@@ -52,7 +80,7 @@ func makeDescBackup(appCtx *appctx.AppContext, job ctx.Job) (errs []error) {
 				}
 
 				backupFileName := misc.GetBackupFileName(tPattern, ofs)
-				tmpBackupFullPath := misc.GetFullPath(tmpDirPath, backupFileName, "tar", "", source.Gzip)
+				tmpBackupFullPath := misc.GetBackupFullPath(tmpDirPath, backupFileName, "tar", "", source.Gzip)
 
 				backupFile, err := os.Create(tmpBackupFullPath)
 				if err != nil {
@@ -75,8 +103,19 @@ func makeDescBackup(appCtx *appctx.AppContext, job ctx.Job) (errs []error) {
 				err = writeDirectory(ofs, tarWriter, filepath.Dir(ofs))
 				if err != nil {
 					errs = append(errs, err)
+				} else {
+					dumpedOfs[backupFileName] = tmpBackupFullPath
+				}
+				if j.DeferredCopyingLevel <= 0 {
+					continue // do rotate
 				}
 			}
+			if j.DeferredCopyingLevel == 1 {
+				continue
+			}
+		}
+		if j.DeferredCopyingLevel >= 2 {
+			continue
 		}
 	}
 	return

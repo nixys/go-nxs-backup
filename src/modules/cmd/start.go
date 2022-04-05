@@ -8,7 +8,6 @@ import (
 
 	"nxs-backup/ctx"
 	"nxs-backup/ctx/args"
-	"nxs-backup/modules/files"
 )
 
 func Start(appCtx *appctx.AppContext) error {
@@ -17,29 +16,30 @@ func Start(appCtx *appctx.AppContext) error {
 
 	cc := appCtx.CustomCtx().(*ctx.Ctx)
 
-	a := cc.Args.Values.(args.StartOpts)
+	for _, job := range cc.Jobs {
 
-	switch a.JobName {
-	case "all":
-		errList := files.MakeBackup(appCtx)
-		if len(errList) > 0 {
-			for _, err := range errList {
-				errs = append(errs, err.Error())
+		switch cc.Args.Values.(args.StartOpts).JobName {
+		case "all":
+			errList := job.MakeBackup(appCtx)
+			if len(errList) > 0 {
+				for _, err := range errList {
+					errs = append(errs, err.Error())
+				}
 			}
-		}
-	case "databases":
-		fmt.Println("databases")
-	case "files":
-		errList := files.MakeBackup(appCtx)
-		if len(errList) > 0 {
-			for _, err := range errList {
-				errs = append(errs, err.Error())
+		case "databases":
+			fmt.Println("databases")
+		case "files":
+			errList := job.MakeBackup(appCtx)
+			if len(errList) > 0 {
+				for _, err := range errList {
+					errs = append(errs, err.Error())
+				}
 			}
+		case "external":
+			fmt.Println("external")
+		default:
+			fmt.Println("some_job")
 		}
-	case "external":
-		fmt.Println("external")
-	default:
-		fmt.Println("some_job")
 	}
 
 	if len(errs) > 0 {

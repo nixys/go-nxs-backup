@@ -2,28 +2,28 @@ package ctx
 
 import (
 	"fmt"
-	conf "github.com/nixys/nxs-go-conf"
 	"net/mail"
+	"nxs-backup/modules/backup"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	conf "github.com/nixys/nxs-go-conf"
+
 	"nxs-backup/misc"
 )
 
 type confOpts struct {
-	ServerName      string   `conf:"server_name" conf_extraopts:"required"`
-	Mail            mailConf `conf:"mail" conf_extraopts:"required"`
-	Jobs            []Job    `conf:"jobs"`
-	IncludeJobsCfgs []string `conf:"include_jobs_configs"`
-	LogFile         string   `conf:"logfile" conf_extraopts:"default=stdout"`
-	LogLevel        string   `conf:"loglevel" conf_extraopts:"default=info"`
-	PidFile         string   `conf:"pidfile"`
-	ConfPath        string
-	FilesJobs       map[string]Job
-	DBsJobs         map[string]Job
-	ExtJobs         map[string]Job
+	ServerName  string   `conf:"server_name" conf_extraopts:"required"`
+	Mail        mailConf `conf:"mail" conf_extraopts:"required"`
+	Jobs        []CfgJob `conf:"jobs"`
+	IncludeCfgs []string `conf:"include_jobs_configs"`
+
+	LogFile  string `conf:"logfile" conf_extraopts:"default=stdout"`
+	LogLevel string `conf:"loglevel" conf_extraopts:"default=info"`
+	PidFile  string `conf:"pidfile"`
+	ConfPath string
 }
 
 type mailConf struct {
@@ -38,20 +38,20 @@ type mailConf struct {
 	MessageLevel string   `conf:"message_level" conf_extraopts:"default=error"`
 }
 
-type Job struct {
-	JobName              string    `conf:"job_name" conf_extraopts:"required"`
-	JobType              string    `conf:"type" conf_extraopts:"required"`
-	TmpDir               string    `conf:"tmp_dir" conf_extraopts:"required"`
-	DumpCmd              string    `conf:"dump_cmd"`
-	SafetyBackup         bool      `conf:"safety_backup" conf_extraopts:"default=false"`
-	DeferredCopyingLevel int       `conf:"deferred_copying_level" conf_extraopts:"default=0"`
-	IncMonthsToStore     int       `conf:"inc_months_to_store" conf_extraopts:"default=12"`
-	Sources              []source  `conf:"sources"`
-	Storages             []storage `conf:"storages"`
+type CfgJob struct {
+	JobName              string       `conf:"job_name" conf_extraopts:"required"`
+	JobType              string       `conf:"type" conf_extraopts:"required"`
+	TmpDir               string       `conf:"tmp_dir" conf_extraopts:"required"`
+	DumpCmd              string       `conf:"dump_cmd"`
+	SafetyBackup         bool         `conf:"safety_backup" conf_extraopts:"default=false"`
+	DeferredCopyingLevel int          `conf:"deferred_copying_level" conf_extraopts:"default=0"`
+	IncMonthsToStore     int          `conf:"inc_months_to_store" conf_extraopts:"default=12"`
+	Sources              []cfgSource  `conf:"sources"`
+	Storages             []cfgStorage `conf:"storages"`
 }
 
-type source struct {
-	Connect            dbConnect
+type cfgSource struct {
+	Connect            cfgConnect
 	SpecialKeys        string   `conf:"special_keys"`
 	Target             []string `conf:"target"`
 	TargetDbs          []string `conf:"target_dbs"`
@@ -60,27 +60,27 @@ type source struct {
 	ExcludeDbs         []string `conf:"exclude_dbs"`
 	ExcludeCollections []string `conf:"exclude_collections"`
 	Gzip               bool     `conf:"gzip" conf_extraopts:"default=false"`
-	SkipBackupRotate   bool     `conf:"skip_backup_rotate" conf_extraopts:"default=false"`
+	SkipBackupRotate   bool     `conf:"skip_backup_rotate" conf_extraopts:"default=false"` // used by external
 }
 
-type dbConnect struct {
+type cfgConnect struct {
 	AuthFile   string `conf:"auth_file"`
-	DbHost     string `conf:"db_host"`
-	DbPort     string `conf:"db_port"`
+	DBHost     string `conf:"db_host"`
+	DBPort     string `conf:"db_port"`
 	Socket     string `conf:"socket"`
-	DbUser     string `conf:"db_user"`
-	DbPassword string `conf:"db_password"`
+	DBUser     string `conf:"db_user"`
+	DBPassword string `conf:"db_password"`
 	PathToConf string `conf:"path_to_conf"`
 }
 
-type storage struct {
-	Storage    string    `conf:"storage" conf_extraopts:"required"`
-	Enable     bool      `conf:"enable" conf_extraopts:"default=true"`
-	BackupPath string    `conf:"backup_path"`
-	Retention  retention `conf:"retention"`
+type cfgStorage struct {
+	Storage    string       `conf:"storage" conf_extraopts:"required"`
+	Enable     bool         `conf:"enable" conf_extraopts:"default=true"`
+	BackupPath string       `conf:"backup_path" conf_extraopts:"required"`
+	Retention  cfgRetention `conf:"retention" conf_extraopts:"required"`
 }
 
-type retention struct {
+type cfgRetention struct {
 	Days   int `conf:"days"`
 	Weeks  int `conf:"weeks"`
 	Months int `conf:"months"`
@@ -106,8 +106,8 @@ func confRead(confPath string) (confOpts, error) {
 
 	c.ConfPath = confPath
 
-	if len(c.IncludeJobsCfgs) > 0 {
-		err := c.jobsRead()
+	if len(c.IncludeCfgs) > 0 {
+		err := c.extraCfgsRead()
 		if err != nil {
 			return c, err
 		}
@@ -122,9 +122,9 @@ func confRead(confPath string) (confOpts, error) {
 	return c, nil
 }
 
-func (c *confOpts) jobsRead() error {
+func (c *confOpts) extraCfgsRead() error {
 
-	for _, pathRegexp := range c.IncludeJobsCfgs {
+	for _, pathRegexp := range c.IncludeCfgs {
 		var p string
 
 		abs, err := filepath.Abs(pathRegexp)
@@ -148,7 +148,7 @@ func (c *confOpts) jobsRead() error {
 					return err
 				}
 				if match && !info.IsDir() {
-					var j Job
+					var j CfgJob
 
 					err = conf.Load(&j, conf.Settings{
 						ConfPath:    fp,
@@ -176,25 +176,15 @@ func (c *confOpts) validate() error {
 
 	var errs []string
 
-	c.FilesJobs = make(map[string]Job)
-	c.DBsJobs = make(map[string]Job)
-	c.ExtJobs = make(map[string]Job)
-
-	allowedFilesJobTypes := []string{
+	allowedJobTypes := []string{
 		"desc_files",
 		"inc_files",
-	}
-
-	allowedDBsJobTypes := []string{
 		"mysql",
 		"mysql_xtrabackup",
 		"postgresql",
 		"postgresql_basebackup",
 		"mongodb",
 		"redis",
-	}
-
-	allowedExtJobTypes := []string{
 		"external",
 	}
 
@@ -222,16 +212,10 @@ func (c *confOpts) validate() error {
 	// jobs validation
 	for _, j := range c.Jobs {
 		if len(j.JobName) == 0 {
-			errs = append(errs, fmt.Sprintf("  empty job name is unacceptable"))
+			errs = append(errs, "  empty job name is unacceptable")
 		}
 
-		if contains(allowedFilesJobTypes, j.JobType) {
-			c.FilesJobs[j.JobName] = j
-		} else if contains(allowedDBsJobTypes, j.JobType) {
-			c.DBsJobs[j.JobName] = j
-		} else if contains(allowedExtJobTypes, j.JobType) {
-			c.ExtJobs[j.JobName] = j
-		} else {
+		if !contains(allowedJobTypes, j.JobType) {
 			errs = append(errs, fmt.Sprintf("  unknown job type \"%s\".", j.JobType))
 		}
 
@@ -241,7 +225,7 @@ func (c *confOpts) validate() error {
 			}
 
 			if s.Retention.Days < 0 || s.Retention.Weeks < 0 || s.Retention.Months < 0 {
-				errs = append(errs, fmt.Sprintf("  retention period can't be negative"))
+				errs = append(errs, "  cfgRetention period can't be negative")
 			}
 		}
 	}
@@ -262,4 +246,62 @@ func contains(s []string, str string) bool {
 	}
 
 	return false
+}
+
+func getJobsSettings(cfgJobs []CfgJob) (jobs []backup.JobSettings) {
+
+	for _, j := range cfgJobs {
+
+		var (
+			srcs []backup.SourceSettings
+			sts  []backup.StorageSettings
+		)
+
+		for _, src := range j.Sources {
+			srcs = append(srcs, backup.SourceSettings{
+				Target:             src.Target,
+				TargetDbs:          src.TargetDbs,
+				TargetCollections:  src.TargetCollections,
+				Excludes:           src.Excludes,
+				ExcludeDbs:         src.ExcludeDbs,
+				ExcludeCollections: src.ExcludeCollections,
+				SpecialKeys:        src.SpecialKeys,
+				Gzip:               src.Gzip,
+				SkipBackupRotate:   src.SkipBackupRotate,
+				ConnectSettings: backup.ConnectSettings{
+					Socket:     src.Connect.Socket,
+					AuthFile:   src.Connect.AuthFile,
+					DBHost:     src.Connect.DBHost,
+					DBPort:     src.Connect.DBPort,
+					DBUser:     src.Connect.DBUser,
+					DBPassword: src.Connect.DBPassword,
+					PathToConf: src.Connect.PathToConf,
+				},
+			})
+		}
+
+		for _, st := range j.Storages {
+
+			sts = append(sts, backup.StorageSettings{
+				Storage:    st.Storage,
+				Enable:     st.Enable,
+				BackupPath: st.BackupPath,
+				Retention:  backup.RetentionSettings(st.Retention),
+			})
+		}
+
+		jobs = append(jobs, backup.JobSettings{
+			JobName:              j.JobName,
+			JobType:              j.JobType,
+			TmpDir:               j.TmpDir,
+			DumpCmd:              j.DumpCmd,
+			SafetyBackup:         j.SafetyBackup,
+			DeferredCopyingLevel: j.DeferredCopyingLevel,
+			IncMonthsToStore:     j.IncMonthsToStore,
+			Sources:              srcs,
+			Storages:             sts,
+		})
+	}
+
+	return
 }

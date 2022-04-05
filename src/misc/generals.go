@@ -49,7 +49,20 @@ func GetDateTimeNow(unit string) (res string) {
 	return res
 }
 
-func GetFullPath(dirPath, baseName, baseExtension, prefix string, gZip bool) (fullPath string) {
+func NeedToMakeBackup(day, week, month int) bool {
+	backupDom := "1"
+	backupDow := "7"
+
+	if day > 0 ||
+		(week > 0 && GetDateTimeNow("dow") == backupDow) ||
+		(month > 0 && GetDateTimeNow("dom") == backupDom) {
+		return true
+	}
+
+	return false
+}
+
+func GetBackupFullPath(dirPath, baseName, baseExtension, prefix string, gZip bool) (fullPath string) {
 
 	fileName := fmt.Sprintf("%s_%s.%s", baseName, GetDateTimeNow(""), baseExtension)
 

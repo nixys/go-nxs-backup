@@ -2,6 +2,8 @@ package ctx
 
 import (
 	"fmt"
+	"nxs-backup/interfaces"
+	"nxs-backup/modules/backup"
 	"os"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -12,6 +14,7 @@ import (
 type Ctx struct {
 	Conf confOpts
 	Args *args.Args
+	Jobs []interfaces.Job
 }
 
 // Init initiates application custom context
@@ -27,6 +30,8 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	// Set application context
 	c.Conf = conf
 	c.Args = opts.Args.(*args.Args)
+
+	c.Jobs = backup.JobsInit(getJobsSettings(conf.Jobs))
 
 	return appctx.CfgData{
 		LogFile:  c.Conf.LogFile,

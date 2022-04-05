@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"nxs-backup/modules/cmd"
 	"os"
 	"syscall"
 
@@ -11,6 +10,7 @@ import (
 
 	"nxs-backup/ctx"
 	"nxs-backup/ctx/args"
+	"nxs-backup/modules/cmd"
 )
 
 func main() {
