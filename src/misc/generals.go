@@ -56,13 +56,15 @@ func GetDateTimeNow(unit string) (res string) {
 	return res
 }
 
-func GetSubPath() (res string) {
+func GetSubPaths() (res []string) {
 	if GetDateTimeNow("dom") == MonthlyBackupDay {
-		return "monthly"
-	} else if GetDateTimeNow("dow") == WeeklyBackupDay {
-		return "weekly"
+		res = append(res, "monthly")
 	}
-	return "daily"
+	if GetDateTimeNow("dow") == WeeklyBackupDay {
+		res = append(res, "weekly")
+	}
+	res = append(res, "daily")
+	return
 }
 
 func NeedToMakeBackup(day, week, month int) bool {

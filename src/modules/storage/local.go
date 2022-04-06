@@ -30,12 +30,17 @@ func (l Local) CopyFile(tmpBackupPath, ofs string, move bool) (err error) {
 	}
 	defer source.Close()
 
-	dstPath := path.Join(l.BackupPath, ofs, misc.GetSubPath(), filepath.Base(tmpBackupPath))
-	err = os.MkdirAll(filepath.Dir(dstPath), os.ModePerm)
-	if err != nil {
-		return
+	subPaths := misc.GetSubPaths()
+
+	for _, subPath := range subPaths {
+		dstPath := path.Join(l.BackupPath, ofs, subPath)
+		err = os.MkdirAll(dstPath, os.ModePerm)
+		if err != nil {
+			return
+		}
 	}
 
+	dstPath := path.Join(l.BackupPath, ofs, subPath, filepath.Base(tmpBackupPath))
 	destination, err := os.Create(dstPath)
 	if err != nil {
 		return
