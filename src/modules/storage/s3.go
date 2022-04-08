@@ -15,6 +15,6 @@ func (s S3) ListFiles() (err error) {
 	return
 }
 
-func (s S3) DeleteFile() (err error) {
+func (s S3) ControlFiles() (err error) {
 	return
 }

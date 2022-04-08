@@ -64,12 +64,13 @@ func (l Local) ListFiles() (err error) {
 	return
 }
 
-func (l Local) DeleteFile() (err error) {
+func (l Local) ControlFiles() (err error) {
 	return
 }
 
 func (l Local) GetDstAndLinks(bakFile, ofs string) (dst string, links map[string]string, err error) {
 
+	var rel string
 	links = make(map[string]string)
 
 	if misc.GetDateTimeNow("dom") == misc.MonthlyBackupDay && l.Months > 0 {
@@ -89,7 +90,11 @@ func (l Local) GetDstAndLinks(bakFile, ofs string) (dst string, links map[string
 		}
 
 		if dst != "" {
-			links[path.Join(dstPath, bakFile)] = dst
+			rel, err = filepath.Rel(dstPath, dst)
+			if err != nil {
+				return
+			}
+			links[path.Join(dstPath, bakFile)] = rel
 		} else {
 			dst = path.Join(dstPath, bakFile)
 		}
@@ -102,7 +107,11 @@ func (l Local) GetDstAndLinks(bakFile, ofs string) (dst string, links map[string
 		}
 
 		if dst != "" {
-			links[path.Join(dstPath, bakFile)] = dst
+			rel, err = filepath.Rel(dstPath, dst)
+			if err != nil {
+				return
+			}
+			links[path.Join(dstPath, bakFile)] = rel
 		} else {
 			dst = path.Join(dstPath, bakFile)
 		}

@@ -3,7 +3,7 @@ package interfaces
 type Storage interface {
 	CopyFile(tmpBackupPath, ofs string, move bool) error
 	ListFiles() error
-	DeleteFile() error
+	ControlFiles() error
 	IsLocal() int
 }
 

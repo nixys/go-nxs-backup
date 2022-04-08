@@ -25,6 +25,7 @@ type DescFilesJob struct {
 	IncMonthsToStore     int
 	Sources              []DescFilesSource
 	Storages             []interfaces.Storage
+	NeedToMakeBackup     bool
 }
 
 type DescFilesSource struct {
@@ -37,8 +38,11 @@ func (j DescFilesJob) GetJobType() string {
 	return "desc_files"
 }
 
-func (j DescFilesJob) MakeBackup(appCtx *appctx.AppContext) (errs []error) {
+func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 
+	if !j.NeedToMakeBackup {
+		return
+	}
 	//cc := appCtx.CustomCtx().(*ctx.Ctx)
 	tmpDirPath := path.Join(j.TmpDir, fmt.Sprintf("%s_%s", j.GetJobType(), misc.GetDateTimeNow("")))
 	err := os.MkdirAll(tmpDirPath, os.ModePerm)
@@ -82,27 +86,10 @@ func (j DescFilesJob) MakeBackup(appCtx *appctx.AppContext) (errs []error) {
 				backupFileName := misc.GetBackupFileName(tPattern, ofs)
 				tmpBackupFullPath := misc.GetBackupFullPath(tmpDirPath, backupFileName, "tar", "", source.Gzip)
 
-				backupFile, err := os.Create(tmpBackupFullPath)
+				err = createBackup(tmpBackupFullPath, ofs, source.Gzip)
 				if err != nil {
 					errs = append(errs, err)
 					continue
-				}
-				defer backupFile.Close()
-
-				var backupWriter io.WriteCloser
-				if source.Gzip {
-					backupWriter = gzip.NewWriter(backupFile)
-				} else {
-					backupWriter = backupFile
-				}
-				defer backupWriter.Close()
-
-				tarWriter := tar.NewWriter(backupWriter)
-				defer tarWriter.Close()
-
-				err = writeDirectory(ofs, tarWriter, filepath.Dir(ofs))
-				if err != nil {
-					errs = append(errs, err)
 				} else {
 					dumpedOfs[backupFileName] = tmpBackupFullPath
 				}
@@ -126,6 +113,28 @@ func (j DescFilesJob) MakeBackup(appCtx *appctx.AppContext) (errs []error) {
 			errs = append(errs, err)
 		}
 	}
+	return
+}
+
+func createBackup(tmpBackupPath, ofs string, gZip bool) (err error) {
+	backupFile, err := os.Create(tmpBackupPath)
+	if err != nil {
+		return
+	}
+	//defer backupFile.Close()
+
+	var backupWriter io.WriteCloser
+	if gZip {
+		backupWriter = gzip.NewWriter(backupFile)
+	} else {
+		backupWriter = backupFile
+	}
+	defer backupWriter.Close()
+
+	tarWriter := tar.NewWriter(backupWriter)
+	defer tarWriter.Close()
+
+	err = writeDirectory(ofs, tarWriter, filepath.Dir(ofs))
 	return
 }
 

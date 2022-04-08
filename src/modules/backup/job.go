@@ -1,10 +1,10 @@
 package backup
 
 import (
+	"nxs-backup/misc"
 	"sort"
 
 	"nxs-backup/interfaces"
-	"nxs-backup/misc"
 	"nxs-backup/modules/storage"
 )
 
@@ -60,9 +60,13 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job) {
 
 	for _, j := range js {
 
-		var sts []interfaces.Storage
+		var (
+			sts          []interfaces.Storage
+			needToBackup = false
+		)
 		for _, s := range j.Storages {
-			if s.Enable && misc.NeedToMakeBackup(s.Retention.Days, s.Retention.Weeks, s.Retention.Months) {
+			if s.Enable {
+				needToBackup = misc.NeedToMakeBackup(s.Retention.Days, s.Retention.Weeks, s.Retention.Months)
 				switch s.Storage {
 				// default = "local"
 				default:
@@ -97,6 +101,7 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job) {
 					IncMonthsToStore:     j.IncMonthsToStore,
 					Sources:              srcs,
 					Storages:             sts,
+					NeedToMakeBackup:     needToBackup,
 				})
 			// "external" as default
 			default:

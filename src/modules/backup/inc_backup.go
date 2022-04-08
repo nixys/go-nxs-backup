@@ -12,6 +12,6 @@ func (j IncFilesJob) GetJobType() string {
 	return "inc_files"
 }
 
-func (j IncFilesJob) MakeBackup(appCtx *appctx.AppContext) (errs []error) {
+func (j IncFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 	return
 }

@@ -20,7 +20,7 @@ func Start(appCtx *appctx.AppContext) error {
 
 		switch cc.Args.Values.(args.StartOpts).JobName {
 		case "all":
-			errList := job.MakeBackup(appCtx)
+			errList := job.DoBackup(appCtx)
 			if len(errList) > 0 {
 				for _, err := range errList {
 					errs = append(errs, err.Error())
@@ -29,7 +29,7 @@ func Start(appCtx *appctx.AppContext) error {
 		case "databases":
 			fmt.Println("databases")
 		case "files":
-			errList := job.MakeBackup(appCtx)
+			errList := job.DoBackup(appCtx)
 			if len(errList) > 0 {
 				for _, err := range errList {
 					errs = append(errs, err.Error())
