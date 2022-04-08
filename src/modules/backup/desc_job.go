@@ -17,7 +17,7 @@ import (
 )
 
 type DescFilesJob struct {
-	JobName              string
+	Name                 string
 	TmpDir               string
 	DumpCmd              string
 	SafetyBackup         bool
@@ -26,13 +26,17 @@ type DescFilesJob struct {
 	Sources              []DescFilesSource
 	Storages             []interfaces.Storage
 	NeedToMakeBackup     bool
+	OfsPartsList
 }
 
+type OfsPartsList []string
+
 type DescFilesSource struct {
-	Targets  []string
-	Excludes []string
-	Gzip     bool
+	Targets []TargetOfs
+	Gzip    bool
 }
+
+type TargetOfs map[string]string
 
 func (j DescFilesJob) GetJobType() string {
 	return "desc_files"
@@ -41,6 +45,7 @@ func (j DescFilesJob) GetJobType() string {
 func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 
 	if !j.NeedToMakeBackup {
+		appCtx.Log().Infof("According to the backup plan today new backups are not created for job %s", j.Name)
 		return
 	}
 	//cc := appCtx.CustomCtx().(*ctx.Ctx)
@@ -55,44 +60,19 @@ func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 
 	for _, source := range j.Sources {
 
-		for _, tPattern := range source.Targets {
-			targetFiles, err := filepath.Glob(tPattern)
-			if err != nil {
-				e := fmt.Errorf("%s. Pattern: %s", err, tPattern)
-				appCtx.Log().Error(e)
-				errs = append(errs, e)
-				continue
-			}
+		for _, target := range source.Targets {
 
-			for _, ofs := range targetFiles {
-				excluded := false
-				for _, exPattern := range source.Excludes {
-					match, err := filepath.Match(exPattern, ofs)
-					if err != nil {
-						e := fmt.Errorf("%s. Pattern: %s", err, exPattern)
-						appCtx.Log().Error(e)
-						errs = append(errs, e)
-						continue
-					}
-					if match {
-						excluded = true
-						break
-					}
-				}
-				if excluded {
-					continue
-				}
+			for ofsPart, ofs := range target {
 
-				backupFileName := misc.GetBackupFileName(tPattern, ofs)
-				tmpBackupFullPath := misc.GetBackupFullPath(tmpDirPath, backupFileName, "tar", "", source.Gzip)
-
+				tmpBackupFullPath := misc.GetBackupFullPath(j.TmpDir, ofsPart, "tar", "", source.Gzip)
 				err = createBackup(tmpBackupFullPath, ofs, source.Gzip)
 				if err != nil {
 					errs = append(errs, err)
 					continue
-				} else {
-					dumpedOfs[backupFileName] = tmpBackupFullPath
 				}
+
+				dumpedOfs[ofsPart] = tmpBackupFullPath
+
 				if j.DeferredCopyingLevel <= 0 {
 					misc.BackupDelivery(dumpedOfs, j.Storages)
 				}

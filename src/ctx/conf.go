@@ -53,7 +53,7 @@ type CfgJob struct {
 type cfgSource struct {
 	Connect            cfgConnect
 	SpecialKeys        string   `conf:"special_keys"`
-	Target             []string `conf:"target"`
+	Targets            []string `conf:"targets"`
 	TargetDbs          []string `conf:"target_dbs"`
 	TargetCollections  []string `conf:"target_collections"`
 	Excludes           []string `conf:"excludes"`
@@ -259,7 +259,7 @@ func getJobsSettings(cfgJobs []CfgJob) (jobs []backup.JobSettings) {
 
 		for _, src := range j.Sources {
 			srcs = append(srcs, backup.SourceSettings{
-				Target:             src.Target,
+				Targets:            src.Targets,
 				TargetDbs:          src.TargetDbs,
 				TargetCollections:  src.TargetCollections,
 				Excludes:           src.Excludes,

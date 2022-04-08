@@ -15,7 +15,7 @@ const (
 	WeeklyBackupDay  = "7"
 )
 
-func GetBackupFileName(regex, target string) string {
+func GetOfsPart(regex, target string) string {
 	var pathParts []string
 
 	regexParts := strings.Split(regex, "/")

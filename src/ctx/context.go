@@ -32,7 +32,15 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	c.Conf = conf
 	c.Args = opts.Args.(*args.Args)
 
-	c.Jobs = backup.JobsInit(getJobsSettings(conf.Jobs))
+	var errs []error
+	c.Jobs, errs = backup.JobsInit(getJobsSettings(conf.Jobs))
+	if len(errs) > 0 {
+		fmt.Println("Failed init jobs with next errors:")
+		for _, err = range errs {
+			fmt.Printf("  %s\n", err)
+		}
+		os.Exit(1)
+	}
 
 	return appctx.CfgData{
 		LogFile:  c.Conf.LogFile,
