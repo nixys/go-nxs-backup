@@ -5,7 +5,11 @@ import (
 )
 
 type IncFilesJob struct {
-	JobName string
+	Name string
+}
+
+func (j IncFilesJob) GetJobName() string {
+	return j.Name
 }
 
 func (j IncFilesJob) GetJobType() string {

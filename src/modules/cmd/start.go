@@ -20,6 +20,7 @@ func Start(appCtx *appctx.AppContext) error {
 
 		switch cc.Args.Values.(args.StartOpts).JobName {
 		case "all":
+			appCtx.Log().Info("Starting backup all jobs.")
 			errList := job.DoBackup(appCtx)
 			if len(errList) > 0 {
 				for _, err := range errList {
@@ -27,8 +28,9 @@ func Start(appCtx *appctx.AppContext) error {
 				}
 			}
 		case "databases":
-			fmt.Println("databases")
+			appCtx.Log().Info("Starting backup databases jobs.")
 		case "files":
+			appCtx.Log().Info("Starting backup files jobs.")
 			errList := job.DoBackup(appCtx)
 			if len(errList) > 0 {
 				for _, err := range errList {
@@ -36,9 +38,11 @@ func Start(appCtx *appctx.AppContext) error {
 				}
 			}
 		case "external":
-			fmt.Println("external")
+			if job.GetJobType() == "external" {
+				appCtx.Log().Info("Starting backup external jobs.")
+			}
 		default:
-			fmt.Println("some_job")
+			appCtx.Log().Info("Starting backup 'some' jobs.")
 		}
 	}
 

@@ -2,12 +2,12 @@ package backup
 
 import (
 	"fmt"
-	"path/filepath"
-	"sort"
-
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/storage"
+	"path/filepath"
+	"sort"
+	"strings"
 )
 
 type JobSettings struct {
@@ -94,6 +94,10 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job, errs []error) {
 
 				var tgts []TargetOfs
 				for _, targetPattern := range s.Targets {
+
+					for strings.HasSuffix(targetPattern, "/") {
+						targetPattern = strings.TrimSuffix(targetPattern, "/")
+					}
 
 					targetOfsList, err := filepath.Glob(targetPattern)
 					if err != nil {

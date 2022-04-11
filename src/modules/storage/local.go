@@ -127,6 +127,10 @@ func (l Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (e
 			backupDir := filepath.Join(l.BackupPath, ofsPart, period)
 			files, err := ioutil.ReadDir(backupDir)
 			if err != nil {
+				if os.IsNotExist(err) {
+					appCtx.Log().Warnf("Error: %s", err)
+					continue
+				}
 				appCtx.Log().Errorf("Failed to read files in directory '%s' with next error: %s", backupDir, err)
 				return []error{err}
 			}

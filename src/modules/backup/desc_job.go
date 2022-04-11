@@ -36,6 +36,10 @@ type DescFilesSource struct {
 
 type TargetOfs map[string]string
 
+func (j DescFilesJob) GetJobName() string {
+	return j.Name
+}
+
 func (j DescFilesJob) GetJobType() string {
 	return "desc_files"
 }

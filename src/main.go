@@ -34,7 +34,8 @@ func main() {
 		TermSignals:      []os.Signal{syscall.SIGTERM, syscall.SIGINT},
 		ReloadSignals:    []os.Signal{syscall.SIGHUP},
 		LogrotateSignals: []os.Signal{syscall.SIGUSR1},
-		LogFormatter:     &logrus.JSONFormatter{},
+		//LogFormatter:     &logrus.JSONFormatter{},
+		LogFormatter: &logrus.TextFormatter{},
 	})
 	if err != nil {
 		fmt.Println(err)
