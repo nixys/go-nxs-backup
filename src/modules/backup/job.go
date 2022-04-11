@@ -2,11 +2,11 @@ package backup
 
 import (
 	"fmt"
-	"nxs-backup/misc"
 	"path/filepath"
 	"sort"
 
 	"nxs-backup/interfaces"
+	"nxs-backup/misc"
 	"nxs-backup/modules/storage"
 )
 
@@ -63,9 +63,13 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job, errs []error) {
 	for _, j := range js {
 
 		var sts []interfaces.Storage
+		needToMakeBackup := false
 
 		for _, s := range j.Storages {
-			if s.Enable && misc.NeedToMakeBackup(s.Retention.Days, s.Retention.Weeks, s.Retention.Months) {
+			if s.Enable {
+				if misc.NeedToMakeBackup(s.Retention.Days, s.Retention.Weeks, s.Retention.Months) {
+					needToMakeBackup = true
+				}
 				switch s.Storage {
 				// default = "local"
 				default:
@@ -76,7 +80,9 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job, errs []error) {
 				}
 			}
 		}
-		sort.Sort(interfaces.SortByLocal(sts))
+		if len(sts) > 1 {
+			sort.Sort(interfaces.SortByLocal(sts))
+		}
 
 		switch j.JobType {
 		case "desc_files":
@@ -133,10 +139,9 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job, errs []error) {
 				TmpDir:               j.TmpDir,
 				SafetyBackup:         j.SafetyBackup,
 				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				IncMonthsToStore:     j.IncMonthsToStore,
 				Sources:              srcs,
 				Storages:             sts,
-				NeedToMakeBackup:     len(sts) > 0,
+				NeedToMakeBackup:     needToMakeBackup,
 				OfsPartsList:         ofsPartsList,
 			})
 		// "external" as default

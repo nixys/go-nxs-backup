@@ -19,10 +19,8 @@ import (
 type DescFilesJob struct {
 	Name                 string
 	TmpDir               string
-	DumpCmd              string
 	SafetyBackup         bool
 	DeferredCopyingLevel int
-	IncMonthsToStore     int
 	Sources              []DescFilesSource
 	Storages             []interfaces.Storage
 	NeedToMakeBackup     bool
@@ -44,53 +42,79 @@ func (j DescFilesJob) GetJobType() string {
 
 func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 
-	if !j.NeedToMakeBackup {
-		appCtx.Log().Infof("According to the backup plan today new backups are not created for job %s", j.Name)
-		return
+	if j.SafetyBackup {
+		defer func(j DescFilesJob) {
+			err := j.controlOldBackups()
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}(j)
+	} else {
+		err := j.controlOldBackups()
+		if err != nil {
+			errs = append(errs, err)
+			return
+		}
 	}
-	//cc := appCtx.CustomCtx().(*ctx.Ctx)
-	tmpDirPath := path.Join(j.TmpDir, fmt.Sprintf("%s_%s", j.GetJobType(), misc.GetDateTimeNow("")))
-	err := os.MkdirAll(tmpDirPath, os.ModePerm)
-	if err != nil {
-		appCtx.Log().Error(err)
-		return []error{err}
-	}
+	if j.NeedToMakeBackup {
 
-	dumpedOfs := make(map[string]string)
+		tmpDirPath := path.Join(j.TmpDir, fmt.Sprintf("%s_%s", j.GetJobType(), misc.GetDateTimeNow("")))
+		err := os.MkdirAll(tmpDirPath, os.ModePerm)
+		if err != nil {
+			appCtx.Log().Error(err)
+			return []error{err}
+		}
 
-	for _, source := range j.Sources {
+		dumpedOfs := make(map[string]string)
 
-		for _, target := range source.Targets {
+		for _, source := range j.Sources {
 
-			for ofsPart, ofs := range target {
+			for _, target := range source.Targets {
 
-				tmpBackupFullPath := misc.GetBackupFullPath(j.TmpDir, ofsPart, "tar", "", source.Gzip)
-				err = createBackup(tmpBackupFullPath, ofs, source.Gzip)
-				if err != nil {
-					errs = append(errs, err)
-					continue
+				for ofsPart, ofs := range target {
+
+					tmpBackupFullPath := misc.GetBackupFullPath(j.TmpDir, ofsPart, "tar", "", source.Gzip)
+					err = createBackup(tmpBackupFullPath, ofs, source.Gzip)
+					if err != nil {
+						errs = append(errs, err)
+						continue
+					}
+
+					dumpedOfs[ofsPart] = tmpBackupFullPath
+
+					if j.DeferredCopyingLevel <= 0 {
+						misc.BackupDelivery(dumpedOfs, j.Storages)
+					}
 				}
-
-				dumpedOfs[ofsPart] = tmpBackupFullPath
-
-				if j.DeferredCopyingLevel <= 0 {
+				if j.DeferredCopyingLevel == 1 {
 					misc.BackupDelivery(dumpedOfs, j.Storages)
 				}
 			}
-			if j.DeferredCopyingLevel == 1 {
+			if j.DeferredCopyingLevel >= 2 {
 				misc.BackupDelivery(dumpedOfs, j.Storages)
 			}
 		}
-		if j.DeferredCopyingLevel >= 2 {
-			misc.BackupDelivery(dumpedOfs, j.Storages)
+
+		files, _ := ioutil.ReadDir(tmpDirPath)
+		if len(files) == 0 {
+			err = os.Remove(tmpDirPath)
+			if err != nil {
+				errs = append(errs, err)
+			}
 		}
+	} else {
+		appCtx.Log().Infof("According to the backup plan today new backups are not created for job %s", j.Name)
 	}
 
-	files, _ := ioutil.ReadDir(tmpDirPath)
-	if len(files) == 0 {
-		err = os.Remove(tmpDirPath)
+	return
+}
+
+func (j DescFilesJob) controlOldBackups() (err error) {
+
+	for _, storage := range j.Storages {
+		err = storage.ControlFiles(j.OfsPartsList)
 		if err != nil {
-			errs = append(errs, err)
+			return
 		}
 	}
 	return
@@ -101,7 +125,6 @@ func createBackup(tmpBackupPath, ofs string, gZip bool) (err error) {
 	if err != nil {
 		return
 	}
-	//defer backupFile.Close()
 
 	var backupWriter io.WriteCloser
 	if gZip {
