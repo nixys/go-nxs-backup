@@ -44,15 +44,15 @@ func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 
 	if j.SafetyBackup {
 		defer func(j DescFilesJob) {
-			err := j.controlOldBackups()
+			err := j.controlOldBackups(appCtx)
 			if err != nil {
-				errs = append(errs, err)
+				errs = append(errs, err...)
 			}
 		}(j)
 	} else {
-		err := j.controlOldBackups()
+		err := j.controlOldBackups(appCtx)
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, err...)
 			return
 		}
 	}
@@ -109,12 +109,12 @@ func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 	return
 }
 
-func (j DescFilesJob) controlOldBackups() (err error) {
+func (j DescFilesJob) controlOldBackups(appCtx *appctx.AppContext) (errs []error) {
 
 	for _, storage := range j.Storages {
-		err = storage.ControlFiles(j.OfsPartsList)
+		err := storage.ControlFiles(appCtx, j.OfsPartsList)
 		if err != nil {
-			return
+			errs = append(errs, err...)
 		}
 	}
 	return

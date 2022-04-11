@@ -1,9 +1,11 @@
 package interfaces
 
+import appctx "github.com/nixys/nxs-go-appctx/v2"
+
 type Storage interface {
 	CopyFile(tmpBackupPath, ofs string, move bool) error
 	ListFiles() error
-	ControlFiles(ofsPartsList []string) error
+	ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) []error
 	IsLocal() int
 }
 

@@ -1,16 +1,14 @@
 package storage
 
 import (
-	"fmt"
+	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"io"
-	"io/fs"
 	"io/ioutil"
+	"nxs-backup/misc"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
-
-	"nxs-backup/misc"
 )
 
 type Retention struct {
@@ -120,41 +118,44 @@ func (l Local) ListFiles() (err error) {
 	return
 }
 
-func (l Local) ControlFiles(ofsPartsList []string) (err error) {
+func (l Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
 
-	for _, ofsPart := range ofsPartsList {
-		dailyPath := filepath.Join(l.BackupPath, ofsPart, "daily")
-		dailyRetention := time.Hour * 24 * time.Duration(l.Retention.Days)
-		err = removeOldFiles(dailyPath, dailyRetention)
+	curDate := time.Now()
 
-		weeklyPath := filepath.Join(l.BackupPath, ofsPart, "weekly")
-		weeklyRetention := time.Hour * 24 * 7 * time.Duration(l.Retention.Weeks)
-		err = removeOldFiles(weeklyPath, weeklyRetention)
-
-		monthlyPath := filepath.Join(l.BackupPath, ofsPart, "monthly")
-		monthlyRetention := time.Hour * 24 * 7 * time.Duration(l.Retention.Months)
-		fmt.Println(monthlyPath, monthlyRetention)
-		//err = removeOldFiles(monthlyPath, monthlyRetention)
-	}
-	return
-}
-
-func removeOldFiles(path string, retention time.Duration) (err error) {
-	var files []fs.FileInfo
-
-	fmt.Println(path, retention)
-	files, err = ioutil.ReadDir(path)
-	if err != nil {
-		return
-	}
-	for _, file := range files {
-		curDate := time.Now().Round(24 * time.Hour)
-		fileDuration := curDate.Sub(file.ModTime())
-		fmt.Println(file.Name(), " : ", fileDuration, " : ", fileDuration > retention)
-		if fileDuration > retention {
-			err = os.Remove(filepath.Join(path, file.Name()))
+	for _, period := range []string{"daily", "weekly", "monthly"} {
+		for _, ofsPart := range ofsPartsList {
+			backupDir := filepath.Join(l.BackupPath, ofsPart, period)
+			files, err := ioutil.ReadDir(backupDir)
 			if err != nil {
-				return
+				appCtx.Log().Errorf("Failed to read files in directory '%s' with next error: %s", backupDir, err)
+				return []error{err}
+			}
+
+			for _, file := range files {
+
+				fileDate := file.ModTime()
+				var retentionDate time.Time
+
+				switch period {
+				case "daily":
+					retentionDate = fileDate.AddDate(0, 0, l.Retention.Days)
+				case "weekly":
+					retentionDate = fileDate.AddDate(0, 0, l.Retention.Weeks*7)
+				case "monthly":
+					retentionDate = fileDate.AddDate(0, l.Retention.Months, 0)
+				}
+
+				retentionDate = retentionDate.Round(24 * time.Hour)
+				if curDate.After(retentionDate) {
+					err = os.Remove(filepath.Join(backupDir, file.Name()))
+					if err != nil {
+						appCtx.Log().Errorf("Failed to delete file '%s' in directory '%s' with next error: %s",
+							file.Name(), backupDir, err)
+						errs = append(errs, err)
+					} else {
+						appCtx.Log().Infof("Successfully deleted file '%s' in directory '%s'", file.Name(), backupDir)
+					}
+				}
 			}
 		}
 	}
