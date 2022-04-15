@@ -13,9 +13,9 @@ import (
 
 // Ctx defines application custom context
 type Ctx struct {
-	Conf confOpts
-	Args *args.Args
-	Jobs []interfaces.Job
+	Conf      confOpts
+	CmdParams interface{}
+	Jobs      []interfaces.Job
 }
 
 // Init initiates application custom context
@@ -30,7 +30,8 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 
 	// Set application context
 	c.Conf = conf
-	c.Args = opts.Args.(*args.Args)
+	arg := opts.Args.(*args.Params)
+	c.CmdParams = arg.CmdParams
 
 	var errs []error
 	c.Jobs, errs = backup.JobsInit(getJobsSettings(conf.Jobs))

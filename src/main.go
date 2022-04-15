@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"nxs-backup/modules/cmd"
 	"os"
 	"syscall"
 
@@ -10,21 +11,17 @@ import (
 
 	"nxs-backup/ctx"
 	"nxs-backup/ctx/args"
-	"nxs-backup/modules/cmd"
 )
 
 func main() {
 
-	commands := []args.Command{
-		{
-			Cmd:         "start",
-			ArgsHandler: args.StartRead,
-			CmdHandler:  cmd.Start,
-		},
+	subCmds := args.SubCmds{
+		"start":   cmd.Start,
+		"testCfg": cmd.TestConfig,
 	}
 
 	// Read command line arguments
-	a := args.Read(commands)
+	a := args.Read(subCmds)
 
 	// Init appctx
 	appCtx, err := appctx.ContextInit(appctx.Settings{
