@@ -22,11 +22,11 @@ type Local struct {
 	Retention
 }
 
-func (l Local) IsLocal() int { return 1 }
+func (l *Local) IsLocal() int { return 1 }
 
-func (l Local) CopyFile(tmpBackup, ofs string, move bool) (err error) {
+func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move bool) (err error) {
 
-	dstPath, links, err := l.GetDstAndLinks(filepath.Base(tmpBackup), ofs)
+	dstPath, links, err := l.getDstAndLinks(filepath.Base(tmpBackup), ofs)
 	if err != nil {
 		return
 	}
@@ -62,7 +62,7 @@ func (l Local) CopyFile(tmpBackup, ofs string, move bool) (err error) {
 	return
 }
 
-func (l Local) GetDstAndLinks(bakFile, ofs string) (dst string, links map[string]string, err error) {
+func (l *Local) getDstAndLinks(bakFile, ofs string) (dst string, links map[string]string, err error) {
 
 	var rel string
 	links = make(map[string]string)
@@ -114,11 +114,11 @@ func (l Local) GetDstAndLinks(bakFile, ofs string) (dst string, links map[string
 	return
 }
 
-func (l Local) ListFiles() (err error) {
+func (l *Local) ListFiles() (err error) {
 	return
 }
 
-func (l Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
 
 	curDate := time.Now()
 
@@ -157,7 +157,7 @@ func (l Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (e
 							file.Name(), backupDir, err)
 						errs = append(errs, err)
 					} else {
-						appCtx.Log().Infof("Successfully deleted file '%s' in directory '%s'", file.Name(), backupDir)
+						appCtx.Log().Infof("Successfully deleted old backup file '%s' in directory '%s'", file.Name(), backupDir)
 					}
 				}
 			}

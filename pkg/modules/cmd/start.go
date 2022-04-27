@@ -18,7 +18,7 @@ func Start(appCtx *appctx.AppContext) error {
 
 	for _, job := range cc.Jobs {
 
-		switch cc.CmdParams.(args.StartCmd).JobName {
+		switch cc.CmdParams.(*args.StartCmd).JobName {
 		case "all":
 			appCtx.Log().Info("Starting backup all jobs.")
 			errList := job.DoBackup(appCtx)

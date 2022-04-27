@@ -74,16 +74,30 @@ type cfgConnect struct {
 }
 
 type cfgStorage struct {
-	Storage    string       `conf:"storage" conf_extraopts:"required"`
-	Enable     bool         `conf:"enable" conf_extraopts:"default=true"`
-	BackupPath string       `conf:"backup_path" conf_extraopts:"required"`
-	Retention  cfgRetention `conf:"retention" conf_extraopts:"required"`
+	Type                string               `conf:"type" conf_extraopts:"required"`
+	Enable              bool                 `conf:"enable" conf_extraopts:"default=true"`
+	Retention           cfgRetention         `conf:"retention" conf_extraopts:"required"`
+	LocalStorageOptions *localStorageOptions `conf:"options"`
+	S3StorageOptions    *s3StorageOptions    `conf:"options"`
 }
 
 type cfgRetention struct {
 	Days   int `conf:"days"`
 	Weeks  int `conf:"weeks"`
 	Months int `conf:"months"`
+}
+
+type localStorageOptions struct {
+	BackupPath string `conf:"backup_path" conf_extraopts:"required"`
+}
+
+type s3StorageOptions struct {
+	BucketName      string `conf:"bucket_name"`
+	AccessKeyID     string `conf:"access_key_id"`
+	SecretAccessKey string `conf:"secret_access_key"`
+	Endpoint        string `conf:"endpoint"`
+	Region          string `conf:"region"`
+	BackupPath      string `conf:"backup_path" conf_extraopts:"required"`
 }
 
 func confRead(confPath string) (confOpts, error) {
@@ -107,8 +121,9 @@ func confRead(confPath string) (confOpts, error) {
 	c.ConfPath = confPath
 
 	if len(c.IncludeCfgs) > 0 {
-		err := c.extraCfgsRead()
+		err = c.extraCfgsRead()
 		if err != nil {
+			fmt.Println("Configuration cannot be read.")
 			return c, err
 		}
 	}
@@ -153,7 +168,7 @@ func (c *confOpts) extraCfgsRead() error {
 					err = conf.Load(&j, conf.Settings{
 						ConfPath:    fp,
 						ConfType:    conf.ConfigTypeYAML,
-						UnknownDeny: true,
+						UnknownDeny: false,
 					})
 					if err != nil {
 						return err
@@ -220,8 +235,8 @@ func (c *confOpts) validate() error {
 		}
 
 		for _, s := range j.Storages {
-			if !contains(allowedStorageTypes, s.Storage) {
-				errs = append(errs, fmt.Sprintf("  unknown storage type \"%s\". Allowd types: %s", s.Storage, strings.Join(allowedStorageTypes, ", ")))
+			if !contains(allowedStorageTypes, s.Type) {
+				errs = append(errs, fmt.Sprintf("  unknown storage type \"%s\". Allowd types: %s", s.Type, strings.Join(allowedStorageTypes, ", ")))
 			}
 
 			if s.Retention.Days < 0 || s.Retention.Weeks < 0 || s.Retention.Months < 0 {
@@ -283,10 +298,11 @@ func getJobsSettings(cfgJobs []CfgJob) (jobs []backup.JobSettings) {
 		for _, st := range j.Storages {
 
 			sts = append(sts, backup.StorageSettings{
-				Storage:    st.Storage,
-				Enable:     st.Enable,
-				BackupPath: st.BackupPath,
-				Retention:  backup.RetentionSettings(st.Retention),
+				Type:                st.Type,
+				Enable:              st.Enable,
+				Retention:           backup.RetentionSettings(st.Retention),
+				S3StorageOptions:    backup.S3StorageOptions(*st.S3StorageOptions),
+				LocalStorageOptions: backup.LocalStorageOptions(*st.LocalStorageOptions),
 			})
 		}
 

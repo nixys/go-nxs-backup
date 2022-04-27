@@ -2,12 +2,16 @@ package backup
 
 import (
 	"fmt"
-	"nxs-backup/interfaces"
-	"nxs-backup/misc"
-	"nxs-backup/modules/storage"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+
+	"nxs-backup/interfaces"
+	"nxs-backup/misc"
+	"nxs-backup/modules/storage"
 )
 
 type JobSettings struct {
@@ -23,10 +27,24 @@ type JobSettings struct {
 }
 
 type StorageSettings struct {
-	Enable     bool
-	Storage    string
+	Enable    bool
+	Type      string
+	Retention RetentionSettings
+	S3StorageOptions
+	LocalStorageOptions
+}
+
+type S3StorageOptions struct {
+	BucketName      string
+	AccessKeyID     string
+	SecretAccessKey string
+	Endpoint        string
+	Region          string
+	BackupPath      string
+}
+
+type LocalStorageOptions struct {
 	BackupPath string
-	Retention  RetentionSettings
 }
 
 type RetentionSettings struct {
@@ -70,11 +88,27 @@ func JobsInit(js []JobSettings) (jobs []interfaces.Job, errs []error) {
 				if misc.NeedToMakeBackup(s.Retention.Days, s.Retention.Weeks, s.Retention.Months) {
 					needToMakeBackup = true
 				}
-				switch s.Storage {
-				// default = "local"
-				default:
-					sts = append(sts, storage.Local{
-						BackupPath: s.BackupPath,
+				switch s.Type {
+				case "s3":
+					s3Client, err := minio.New(s.S3StorageOptions.Endpoint, &minio.Options{
+						Creds:  credentials.NewStaticV4(s.S3StorageOptions.AccessKeyID, s.S3StorageOptions.SecretAccessKey, ""),
+						Secure: true,
+					})
+					if err != nil {
+						errs = append(errs, err)
+					}
+
+					sts = append(sts, &storage.S3{
+						Retention: storage.Retention(s.Retention),
+						Client:    s3Client,
+						S3Options: storage.S3Options{
+							BackupPath: s.S3StorageOptions.BackupPath,
+							BucketName: s.S3StorageOptions.BucketName,
+						},
+					})
+				case "local":
+					sts = append(sts, &storage.Local{
+						BackupPath: s.LocalStorageOptions.BackupPath,
 						Retention:  storage.Retention(s.Retention),
 					})
 				}

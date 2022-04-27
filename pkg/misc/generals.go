@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	appctx "github.com/nixys/nxs-go-appctx/v2"
+
 	"nxs-backup/interfaces"
 )
 
@@ -84,7 +86,7 @@ func GetBackupFullPath(dirPath, baseName, baseExtension, prefix string, gZip boo
 	return fullPath
 }
 
-func BackupDelivery(ofs map[string]string, storages []interfaces.Storage) (errs []error) {
+func BackupDelivery(appCtx *appctx.AppContext, ofs map[string]string, storages []interfaces.Storage) (errs []error) {
 
 	for i, st := range storages {
 		moveOfs := false
@@ -93,7 +95,7 @@ func BackupDelivery(ofs map[string]string, storages []interfaces.Storage) (errs 
 		}
 
 		for o, filePath := range ofs {
-			err := st.CopyFile(filePath, o, moveOfs)
+			err := st.CopyFile(appCtx, filePath, o, moveOfs)
 			if err != nil {
 				errs = append(errs, err)
 			}
