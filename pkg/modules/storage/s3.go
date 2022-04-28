@@ -45,7 +45,7 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 		if err != nil {
 			return err
 		}
-		appCtx.Log().Infof("Successfully uploaded '%d' bytes, created object '%s'", n.Size, n.Key)
+		appCtx.Log().Infof("Successfully uploaded '%d' bytes, created object '%s' in bucket %s", n.Size, n.Key, n.Bucket)
 	}
 
 	return nil
@@ -122,33 +122,23 @@ func (s *S3) getDstList(bakFile, ofs string) (dst []string) {
 func (s *S3) getObjectsPeriodicMap(ofsPartsList []string) (objs map[string][]minio.ObjectInfo, err error) {
 	objs = make(map[string][]minio.ObjectInfo)
 
-	for object := range s.Client.ListObjects(context.Background(), s.BucketName, minio.ListObjectsOptions{Recursive: true}) {
-		if object.Err != nil {
-			err = object.Err
-			return
-		}
-
-		// exclude objects not mach ofs from sampling
-		match := false
-		for _, ofs := range ofsPartsList {
-			basePath := strings.TrimPrefix(path.Join(s.BackupPath, ofs), "/")
-			if strings.Contains(object.Key, basePath) {
-				match = true
-				break
+	for _, ofs := range ofsPartsList {
+		basePath := strings.TrimPrefix(path.Join(s.BackupPath, ofs), "/")
+		for object := range s.Client.ListObjects(context.Background(), s.BucketName, minio.ListObjectsOptions{Recursive: true, Prefix: basePath}) {
+			if object.Err != nil {
+				err = object.Err
+				return
 			}
-		}
-		if !match {
-			continue
-		}
 
-		if strings.Contains(object.Key, "daily") {
-			objs["daily"] = append(objs["daily"], object)
-		}
-		if strings.Contains(object.Key, "weekly") {
-			objs["weekly"] = append(objs["weekly"], object)
-		}
-		if strings.Contains(object.Key, "monthly") {
-			objs["monthly"] = append(objs["monthly"], object)
+			if strings.Contains(object.Key, "daily") {
+				objs["daily"] = append(objs["daily"], object)
+			}
+			if strings.Contains(object.Key, "weekly") {
+				objs["weekly"] = append(objs["weekly"], object)
+			}
+			if strings.Contains(object.Key, "monthly") {
+				objs["monthly"] = append(objs["monthly"], object)
+			}
 		}
 	}
 	return

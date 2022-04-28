@@ -57,6 +57,9 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 
 	if move {
 		err = os.Remove(tmpBackup)
+		appCtx.Log().Infof("Successfully moved file '%s' to %s", source.Name(), dstPath)
+	} else {
+		appCtx.Log().Infof("Successfully copied file '%s' to %s", source.Name(), dstPath)
 	}
 
 	return
@@ -149,7 +152,7 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (
 					retentionDate = fileDate.AddDate(0, l.Retention.Months, 0)
 				}
 
-				retentionDate = retentionDate.Round(24 * time.Hour)
+				retentionDate = retentionDate.Truncate(24 * time.Hour)
 				if curDate.After(retentionDate) {
 					err = os.Remove(filepath.Join(backupDir, file.Name()))
 					if err != nil {
