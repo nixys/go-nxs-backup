@@ -17,6 +17,29 @@ const (
 	WeeklyBackupDay  = "7"
 )
 
+var AllowedJobTypes = []string{
+	"desc_files",
+	"inc_files",
+	"mysql",
+	"mysql_xtrabackup",
+	"postgresql",
+	"postgresql_basebackup",
+	"mongodb",
+	"redis",
+	"external",
+}
+
+var AllowedStorageTypes = []string{
+	"s3",
+	"scp",
+	"sftp",
+	"ftp",
+	"smb",
+	"nfs",
+	"webdav",
+	"local",
+}
+
 func GetOfsPart(regex, target string) string {
 	var pathParts []string
 
@@ -102,4 +125,15 @@ func BackupDelivery(appCtx *appctx.AppContext, ofs map[string]string, storages [
 		}
 	}
 	return
+}
+
+// Contains checks if a string is present in a slice
+func Contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+
+	return false
 }

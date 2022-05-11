@@ -2,14 +2,16 @@ package storage
 
 import (
 	"context"
-	"github.com/minio/minio-go/v7"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"nxs-backup/misc"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/minio/minio-go/v7"
+	appctx "github.com/nixys/nxs-go-appctx/v2"
+
+	"nxs-backup/misc"
 )
 
 type S3 struct {

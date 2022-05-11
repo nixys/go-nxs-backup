@@ -9,8 +9,8 @@ type Storage interface {
 	IsLocal() int
 }
 
-type SortByLocal []Storage
+type StorageSortByLocal []Storage
 
-func (s SortByLocal) Len() int           { return len(s) }
-func (s SortByLocal) Less(i, j int) bool { return s[i].IsLocal() < s[j].IsLocal() }
-func (s SortByLocal) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s StorageSortByLocal) Len() int           { return len(s) }
+func (s StorageSortByLocal) Less(i, j int) bool { return s[i].IsLocal() < s[j].IsLocal() }
+func (s StorageSortByLocal) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }

@@ -13,9 +13,9 @@ import (
 
 // Ctx defines application custom context
 type Ctx struct {
-	Conf      confOpts
 	CmdParams interface{}
 	Jobs      []interfaces.Job
+	Storages  map[string]interfaces.Storage
 }
 
 // Init initiates application custom context
@@ -29,12 +29,11 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	}
 
 	// Set application context
-	c.Conf = conf
 	arg := opts.Args.(*args.Params)
 	c.CmdParams = arg.CmdParams
 
 	var errs []error
-	c.Jobs, errs = backup.JobsInit(getJobsSettings(conf.Jobs))
+	c.Jobs, errs = backup.JobsInit(getSettings(conf))
 	if len(errs) > 0 {
 		fmt.Println("Failed init jobs with next errors:")
 		for _, err = range errs {
@@ -44,9 +43,9 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	}
 
 	return appctx.CfgData{
-		LogFile:  c.Conf.LogFile,
-		LogLevel: c.Conf.LogLevel,
-		PidFile:  c.Conf.PidFile,
+		LogFile:  conf.LogFile,
+		LogLevel: conf.LogLevel,
+		PidFile:  conf.PidFile,
 	}, nil
 }
 

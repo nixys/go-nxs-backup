@@ -15,10 +15,11 @@ import (
 )
 
 type confOpts struct {
-	ServerName  string   `conf:"server_name" conf_extraopts:"required"`
-	Mail        mailConf `conf:"mail" conf_extraopts:"required"`
-	Jobs        []CfgJob `conf:"jobs"`
-	IncludeCfgs []string `conf:"include_jobs_configs"`
+	ServerName  string       `conf:"server_name" conf_extraopts:"required"`
+	Mail        mailConf     `conf:"mail" conf_extraopts:"required"`
+	Jobs        []cfgJob     `conf:"jobs"`
+	Storages    []cfgStorage `conf:"storages"`
+	IncludeCfgs []string     `conf:"include_jobs_configs"`
 
 	LogFile  string `conf:"logfile" conf_extraopts:"default=stdout"`
 	LogLevel string `conf:"loglevel" conf_extraopts:"default=info"`
@@ -38,7 +39,7 @@ type mailConf struct {
 	MessageLevel string   `conf:"message_level" conf_extraopts:"default=error"`
 }
 
-type CfgJob struct {
+type cfgJob struct {
 	JobName              string       `conf:"job_name" conf_extraopts:"required"`
 	JobType              string       `conf:"type" conf_extraopts:"required"`
 	TmpDir               string       `conf:"tmp_dir" conf_extraopts:"required"`
@@ -48,6 +49,7 @@ type CfgJob struct {
 	IncMonthsToStore     int          `conf:"inc_months_to_store" conf_extraopts:"default=12"`
 	Sources              []cfgSource  `conf:"sources"`
 	Storages             []cfgStorage `conf:"storages"`
+	StorageNames         []string     `conf:"storage_names"`
 }
 
 type cfgSource struct {
@@ -74,11 +76,13 @@ type cfgConnect struct {
 }
 
 type cfgStorage struct {
-	Type                string               `conf:"type" conf_extraopts:"required"`
-	Enable              bool                 `conf:"enable" conf_extraopts:"default=true"`
-	Retention           cfgRetention         `conf:"retention" conf_extraopts:"required"`
-	LocalStorageOptions *localStorageOptions `conf:"options"`
-	S3StorageOptions    *s3StorageOptions    `conf:"options"`
+	Name         string        `conf:"name" conf_extraopts:"required"`
+	Enable       bool          `conf:"enable" conf_extraopts:"default=true"`
+	Retention    cfgRetention  `conf:"retention" conf_extraopts:"required"`
+	LocalOptions *localOptions `conf:"local_options"`
+	S3Options    *s3Options    `conf:"s3_options"`
+	SFTPOptions  *sftpOptions  `conf:"sftp_options"`
+	SCPOptions   *sftpOptions  `conf:"scp_options"`
 }
 
 type cfgRetention struct {
@@ -87,17 +91,27 @@ type cfgRetention struct {
 	Months int `conf:"months"`
 }
 
-type localStorageOptions struct {
+type localOptions struct {
 	BackupPath string `conf:"backup_path" conf_extraopts:"required"`
 }
 
-type s3StorageOptions struct {
-	BucketName      string `conf:"bucket_name"`
+type s3Options struct {
+	BackupPath      string `conf:"backup_path" conf_extraopts:"required"`
+	BucketName      string `conf:"bucket_name" conf_extraopts:"required"`
 	AccessKeyID     string `conf:"access_key_id"`
 	SecretAccessKey string `conf:"secret_access_key"`
-	Endpoint        string `conf:"endpoint"`
-	Region          string `conf:"region"`
-	BackupPath      string `conf:"backup_path" conf_extraopts:"required"`
+	Endpoint        string `conf:"endpoint" conf_extraopts:"required"`
+	Region          string `conf:"region" conf_extraopts:"required"`
+}
+
+type sftpOptions struct {
+	BackupPath     string `conf:"backup_path" conf_extraopts:"required"`
+	User           string `conf:"user" conf_extraopts:"required"`
+	Host           string `conf:"host" conf_extraopts:"required"`
+	Port           int    `conf:"port" conf_extraopts:"required"`
+	Password       string `conf:"password"`
+	KeyFile        string `conf:"key_file"`
+	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=60"`
 }
 
 func confRead(confPath string) (confOpts, error) {
@@ -130,7 +144,7 @@ func confRead(confPath string) (confOpts, error) {
 
 	err = c.validate()
 	if err != nil {
-		fmt.Println("The configuration syntax is incorrect.")
+		fmt.Println("The configuration is incorrect.")
 		return c, err
 	}
 
@@ -163,12 +177,12 @@ func (c *confOpts) extraCfgsRead() error {
 					return err
 				}
 				if match && !info.IsDir() {
-					var j CfgJob
+					var j cfgJob
 
 					err = conf.Load(&j, conf.Settings{
 						ConfPath:    fp,
 						ConfType:    conf.ConfigTypeYAML,
-						UnknownDeny: false,
+						UnknownDeny: true,
 					})
 					if err != nil {
 						return err
@@ -191,28 +205,6 @@ func (c *confOpts) validate() error {
 
 	var errs []string
 
-	allowedJobTypes := []string{
-		"desc_files",
-		"inc_files",
-		"mysql",
-		"mysql_xtrabackup",
-		"postgresql",
-		"postgresql_basebackup",
-		"mongodb",
-		"redis",
-		"external",
-	}
-
-	allowedStorageTypes := []string{
-		"local",
-		"scp",
-		"ftp",
-		"smb",
-		"nfs",
-		"webdav",
-		"s3",
-	}
-
 	// emails validation
 	mailList := c.Mail.ClientMail
 	mailList = append(mailList, c.Mail.AdminMail)
@@ -224,27 +216,6 @@ func (c *confOpts) validate() error {
 		}
 	}
 
-	// jobs validation
-	for _, j := range c.Jobs {
-		if len(j.JobName) == 0 {
-			errs = append(errs, "  empty job name is unacceptable")
-		}
-
-		if !contains(allowedJobTypes, j.JobType) {
-			errs = append(errs, fmt.Sprintf("  unknown job type \"%s\".", j.JobType))
-		}
-
-		for _, s := range j.Storages {
-			if !contains(allowedStorageTypes, s.Type) {
-				errs = append(errs, fmt.Sprintf("  unknown storage type \"%s\". Allowd types: %s", s.Type, strings.Join(allowedStorageTypes, ", ")))
-			}
-
-			if s.Retention.Days < 0 || s.Retention.Weeks < 0 || s.Retention.Months < 0 {
-				errs = append(errs, "  cfgRetention period can't be negative")
-			}
-		}
-	}
-
 	if len(errs) > 0 {
 		return fmt.Errorf("Detected next errors:\n%s", strings.Join(errs, "\n"))
 	}
@@ -252,25 +223,14 @@ func (c *confOpts) validate() error {
 	return nil
 }
 
-// contains checks if a string is present in a slice
-func contains(s []string, str string) bool {
-	for _, v := range s {
-		if v == str {
-			return true
-		}
-	}
+func getSettings(conf confOpts) (jobs []backup.JobSettings, sts map[string]backup.StorageSettings) {
 
-	return false
-}
+	sts = make(map[string]backup.StorageSettings)
 
-func getJobsSettings(cfgJobs []CfgJob) (jobs []backup.JobSettings) {
+	for _, j := range conf.Jobs {
 
-	for _, j := range cfgJobs {
-
-		var (
-			srcs []backup.SourceSettings
-			sts  []backup.StorageSettings
-		)
+		var srcs []backup.SourceSettings
+		var sns []string
 
 		for _, src := range j.Sources {
 			srcs = append(srcs, backup.SourceSettings{
@@ -297,13 +257,25 @@ func getJobsSettings(cfgJobs []CfgJob) (jobs []backup.JobSettings) {
 
 		for _, st := range j.Storages {
 
-			sts = append(sts, backup.StorageSettings{
-				Type:                st.Type,
-				Enable:              st.Enable,
-				Retention:           backup.RetentionSettings(st.Retention),
-				S3StorageOptions:    backup.S3StorageOptions(*st.S3StorageOptions),
-				LocalStorageOptions: backup.LocalStorageOptions(*st.LocalStorageOptions),
-			})
+			ss := backup.StorageSettings{
+				Enable:    st.Enable,
+				Retention: backup.RetentionSettings(st.Retention),
+			}
+			if st.S3Options != nil {
+				ss.Type = "s3"
+				ss.S3Options = backup.S3Options(*st.S3Options)
+			} else if st.SCPOptions != nil {
+				ss.Type = "scp"
+				ss.SFTPOptions = backup.SFTPOptions(*st.SCPOptions)
+			} else if st.SFTPOptions != nil {
+				ss.Type = "sftp"
+				ss.SFTPOptions = backup.SFTPOptions(*st.SFTPOptions)
+			} else if st.LocalOptions != nil {
+				ss.Type = "local"
+				ss.LocalOptions = backup.LocalOptions(*st.LocalOptions)
+			}
+			sts[st.Name] = ss
+			sns = append(sns, st.Name)
 		}
 
 		jobs = append(jobs, backup.JobSettings{
@@ -315,7 +287,7 @@ func getJobsSettings(cfgJobs []CfgJob) (jobs []backup.JobSettings) {
 			DeferredCopyingLevel: j.DeferredCopyingLevel,
 			IncMonthsToStore:     j.IncMonthsToStore,
 			Sources:              srcs,
-			Storages:             sts,
+			StorageNames:         append(sns, j.StorageNames...),
 		})
 	}
 
