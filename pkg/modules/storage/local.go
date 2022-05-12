@@ -3,14 +3,12 @@ package storage
 import (
 	"io"
 	"io/ioutil"
+	"nxs-backup/misc"
 	"os"
-	"path"
 	"path/filepath"
 	"time"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-
-	"nxs-backup/misc"
 )
 
 type Retention struct {
@@ -28,16 +26,22 @@ func (l *Local) IsLocal() int { return 1 }
 
 func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move bool) (err error) {
 
-	dstPath, links, err := l.getDstAndLinks(filepath.Base(tmpBackup), ofs)
-	if err != nil {
-		return
-	}
-
 	source, err := os.Open(tmpBackup)
 	if err != nil {
 		return
 	}
 	defer source.Close()
+
+	dstPath, links, err := misc.GetDstAndLinks(filepath.Base(tmpBackup), ofs, l.BackupPath, l.Days, l.Weeks, l.Months)
+	if err != nil {
+		return
+	}
+
+	err = os.MkdirAll(filepath.Dir(dstPath), os.ModePerm)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+		return err
+	}
 
 	destination, err := os.Create(dstPath)
 	if err != nil {
@@ -51,6 +55,11 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 	}
 
 	for dst, src := range links {
+		err = os.MkdirAll(filepath.Dir(dst), os.ModePerm)
+		if err != nil {
+			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+			return err
+		}
 		err = os.Symlink(src, dst)
 		if err != nil {
 			return err
@@ -62,58 +71,6 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 		appCtx.Log().Infof("Successfully moved file '%s' to %s", source.Name(), dstPath)
 	} else {
 		appCtx.Log().Infof("Successfully copied file '%s' to %s", source.Name(), dstPath)
-	}
-
-	return
-}
-
-func (l *Local) getDstAndLinks(bakFile, ofs string) (dst string, links map[string]string, err error) {
-
-	var rel string
-	links = make(map[string]string)
-
-	if misc.GetDateTimeNow("dom") == misc.MonthlyBackupDay && l.Months > 0 {
-		dstPath := path.Join(l.BackupPath, ofs, "monthly")
-		err = os.MkdirAll(dstPath, os.ModePerm)
-		if err != nil {
-			return
-		}
-
-		dst = path.Join(dstPath, bakFile)
-	}
-	if misc.GetDateTimeNow("dow") == misc.WeeklyBackupDay && l.Weeks > 0 {
-		dstPath := path.Join(l.BackupPath, ofs, "weekly")
-		err = os.MkdirAll(dstPath, os.ModePerm)
-		if err != nil {
-			return
-		}
-
-		if dst != "" {
-			rel, err = filepath.Rel(dstPath, dst)
-			if err != nil {
-				return
-			}
-			links[path.Join(dstPath, bakFile)] = rel
-		} else {
-			dst = path.Join(dstPath, bakFile)
-		}
-	}
-	if l.Days > 0 {
-		dstPath := path.Join(l.BackupPath, ofs, "daily")
-		err = os.MkdirAll(dstPath, os.ModePerm)
-		if err != nil {
-			return
-		}
-
-		if dst != "" {
-			rel, err = filepath.Rel(dstPath, dst)
-			if err != nil {
-				return
-			}
-			links[path.Join(dstPath, bakFile)] = rel
-		} else {
-			dst = path.Join(dstPath, bakFile)
-		}
 	}
 
 	return

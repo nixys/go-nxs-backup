@@ -2,6 +2,7 @@ package misc
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -136,4 +137,41 @@ func Contains(s []string, str string) bool {
 	}
 
 	return false
+}
+
+func GetDstAndLinks(bakFile, ofs, bakPath string, days, weeks, months int) (dst string, links map[string]string, err error) {
+
+	var rel string
+	links = make(map[string]string)
+
+	if GetDateTimeNow("dom") == MonthlyBackupDay && months > 0 {
+		dstPath := path.Join(bakPath, ofs, "monthly")
+		dst = path.Join(dstPath, bakFile)
+	}
+	if GetDateTimeNow("dow") == WeeklyBackupDay && weeks > 0 {
+		dstPath := path.Join(bakPath, ofs, "weekly")
+		if dst != "" {
+			rel, err = filepath.Rel(dstPath, dst)
+			if err != nil {
+				return
+			}
+			links[path.Join(dstPath, bakFile)] = rel
+		} else {
+			dst = path.Join(dstPath, bakFile)
+		}
+	}
+	if days > 0 {
+		dstPath := path.Join(bakPath, ofs, "daily")
+		if dst != "" {
+			rel, err = filepath.Rel(dstPath, dst)
+			if err != nil {
+				return
+			}
+			links[path.Join(dstPath, bakFile)] = rel
+		} else {
+			dst = path.Join(dstPath, bakFile)
+		}
+	}
+
+	return
 }

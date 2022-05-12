@@ -145,7 +145,7 @@ func JobsInit(js []JobSettings, ss map[string]StorageSettings) (jobs []interface
 						},
 					})
 
-				case "ssh", "sftp":
+				case "scp", "sftp":
 					sshConfig := &ssh.ClientConfig{
 						User:            s.SFTPOptions.User,
 						Auth:            []ssh.AuthMethod{},

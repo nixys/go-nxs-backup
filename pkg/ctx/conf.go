@@ -108,7 +108,7 @@ type sftpOptions struct {
 	BackupPath     string `conf:"backup_path" conf_extraopts:"required"`
 	User           string `conf:"user" conf_extraopts:"required"`
 	Host           string `conf:"host" conf_extraopts:"required"`
-	Port           int    `conf:"port" conf_extraopts:"required"`
+	Port           int    `conf:"port" conf_extraopts:"default=22"`
 	Password       string `conf:"password"`
 	KeyFile        string `conf:"key_file"`
 	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=60"`
