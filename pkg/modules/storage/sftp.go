@@ -7,6 +7,7 @@ import (
 	"nxs-backup/misc"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type SFTP struct {
@@ -76,5 +77,49 @@ func (s *SFTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool
 }
 
 func (s *SFTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+
+	curDate := time.Now()
+
+	for _, period := range []string{"daily", "weekly", "monthly"} {
+		for _, ofsPart := range ofsPartsList {
+			bakDir := filepath.Join(s.BackupPath, ofsPart, period)
+			files, err := s.Client.ReadDir(bakDir)
+			if err != nil {
+				if os.IsNotExist(err) {
+					appCtx.Log().Warnf("Error: %s", err)
+					continue
+				}
+				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+				return []error{err}
+			}
+
+			for _, file := range files {
+
+				fileDate := file.ModTime()
+				var retentionDate time.Time
+
+				switch period {
+				case "daily":
+					retentionDate = fileDate.AddDate(0, 0, s.Retention.Days)
+				case "weekly":
+					retentionDate = fileDate.AddDate(0, 0, s.Retention.Weeks*7)
+				case "monthly":
+					retentionDate = fileDate.AddDate(0, s.Retention.Months, 0)
+				}
+
+				retentionDate = retentionDate.Truncate(24 * time.Hour)
+				if curDate.After(retentionDate) {
+					err = s.Client.Remove(filepath.Join(bakDir, file.Name()))
+					if err != nil {
+						appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+							file.Name(), bakDir, err)
+						errs = append(errs, err)
+					} else {
+						appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+					}
+				}
+			}
+		}
+	}
 	return
 }

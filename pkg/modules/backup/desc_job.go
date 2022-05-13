@@ -90,14 +90,17 @@ func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 
 					if j.DeferredCopyingLevel <= 0 {
 						misc.BackupDelivery(appCtx, dumpedOfs, j.Storages)
+						dumpedOfs = make(map[string]string)
 					}
 				}
 				if j.DeferredCopyingLevel == 1 {
 					misc.BackupDelivery(appCtx, dumpedOfs, j.Storages)
+					dumpedOfs = make(map[string]string)
 				}
 			}
 			if j.DeferredCopyingLevel >= 2 {
 				misc.BackupDelivery(appCtx, dumpedOfs, j.Storages)
+				dumpedOfs = make(map[string]string)
 			}
 		}
 
