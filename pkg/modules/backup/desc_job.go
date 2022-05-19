@@ -25,6 +25,7 @@ type DescFilesJob struct {
 	Storages             []interfaces.Storage
 	NeedToMakeBackup     bool
 	OfsPartsList
+	DumpedObjects
 }
 
 type OfsPartsList []string
@@ -36,11 +37,11 @@ type DescFilesSource struct {
 
 type TargetOfs map[string]string
 
-func (j DescFilesJob) GetJobName() string {
+func (j DescFilesJob) JobName() string {
 	return j.Name
 }
 
-func (j DescFilesJob) GetJobType() string {
+func (j DescFilesJob) JobType() string {
 	return "desc_files"
 }
 
@@ -62,14 +63,14 @@ func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 	}
 	if j.NeedToMakeBackup {
 
-		tmpDirPath := path.Join(j.TmpDir, fmt.Sprintf("%s_%s", j.GetJobType(), misc.GetDateTimeNow("")))
+		tmpDirPath := path.Join(j.TmpDir, fmt.Sprintf("%s_%s", j.JobType(), misc.GetDateTimeNow("")))
 		err := os.MkdirAll(tmpDirPath, os.ModePerm)
 		if err != nil {
 			appCtx.Log().Error(err)
 			return []error{err}
 		}
 
-		dumpedOfs := make(map[string]string)
+		j.DumpedObjects = make(map[string]string)
 
 		for _, source := range j.Sources {
 
@@ -86,21 +87,21 @@ func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 						appCtx.Log().Infof("Successfily created temp backups %s by job %s", tmpBackupFullPath, j.Name)
 					}
 
-					dumpedOfs[ofsPart] = tmpBackupFullPath
+					j.DumpedObjects[ofsPart] = tmpBackupFullPath
 
 					if j.DeferredCopyingLevel <= 0 {
-						misc.BackupDelivery(appCtx, dumpedOfs, j.Storages)
-						dumpedOfs = make(map[string]string)
+						j.DumpedObjects.Delivery(appCtx, j.Storages)
+						j.DumpedObjects = make(map[string]string)
 					}
 				}
 				if j.DeferredCopyingLevel == 1 {
-					misc.BackupDelivery(appCtx, dumpedOfs, j.Storages)
-					dumpedOfs = make(map[string]string)
+					j.DumpedObjects.Delivery(appCtx, j.Storages)
+					j.DumpedObjects = make(map[string]string)
 				}
 			}
 			if j.DeferredCopyingLevel >= 2 {
-				misc.BackupDelivery(appCtx, dumpedOfs, j.Storages)
-				dumpedOfs = make(map[string]string)
+				j.DumpedObjects.Delivery(appCtx, j.Storages)
+				j.DumpedObjects = make(map[string]string)
 			}
 		}
 

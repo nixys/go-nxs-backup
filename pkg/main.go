@@ -7,8 +7,6 @@ import (
 	"syscall"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"github.com/sirupsen/logrus"
-
 	"nxs-backup/ctx"
 	"nxs-backup/ctx/args"
 )
@@ -32,7 +30,7 @@ func main() {
 		ReloadSignals:    []os.Signal{syscall.SIGHUP},
 		LogrotateSignals: []os.Signal{syscall.SIGUSR1},
 		//LogFormatter:     &logrus.JSONFormatter{},
-		LogFormatter: &logrus.TextFormatter{},
+		//LogFormatter: &logrus.TextFormatter{},
 	})
 	if err != nil {
 		fmt.Println(err)

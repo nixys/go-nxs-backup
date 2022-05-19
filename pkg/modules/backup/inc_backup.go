@@ -8,11 +8,11 @@ type IncFilesJob struct {
 	Name string
 }
 
-func (j IncFilesJob) GetJobName() string {
+func (j IncFilesJob) JobName() string {
 	return j.Name
 }
 
-func (j IncFilesJob) GetJobType() string {
+func (j IncFilesJob) JobType() string {
 	return "inc_files"
 }
 

@@ -38,7 +38,7 @@ func Start(appCtx *appctx.AppContext) error {
 				}
 			}
 		case "external":
-			if job.GetJobType() == "external" {
+			if job.JobType() == "external" {
 				appCtx.Log().Info("Starting backup external jobs.")
 			}
 		default:

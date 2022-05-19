@@ -7,10 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-
-	"nxs-backup/interfaces"
 )
 
 const (
@@ -30,15 +26,14 @@ var AllowedJobTypes = []string{
 	"external",
 }
 
-var AllowedStorageTypes = []string{
-	"s3",
-	"scp",
-	"sftp",
-	"ftp",
-	"smb",
-	"nfs",
-	"webdav",
-	"local",
+var AllowedStorageConnectParams = []string{
+	"s3_params",
+	"scp_params",
+	"sftp_params",
+	"ftp_params",
+	"smb_params",
+	"nfs_params",
+	"webdav_params",
 }
 
 func GetOfsPart(regex, target string) string {
@@ -110,24 +105,6 @@ func GetBackupFullPath(dirPath, baseName, baseExtension, prefix string, gZip boo
 	return fullPath
 }
 
-func BackupDelivery(appCtx *appctx.AppContext, ofs map[string]string, storages []interfaces.Storage) (errs []error) {
-
-	for i, st := range storages {
-		moveOfs := false
-		if i == len(storages)-1 && st.IsLocal() == 1 {
-			moveOfs = true
-		}
-
-		for o, filePath := range ofs {
-			err := st.CopyFile(appCtx, filePath, o, moveOfs)
-			if err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
-	return
-}
-
 // Contains checks if a string is present in a slice
 func Contains(s []string, str string) bool {
 	for _, v := range s {
@@ -171,6 +148,23 @@ func GetDstAndLinks(bakFile, ofs, bakPath string, days, weeks, months int) (dst 
 		} else {
 			dst = path.Join(dstPath, bakFile)
 		}
+	}
+
+	return
+}
+
+func GetDstList(bakFile, ofs, bakPath string, days, weeks, months int) (dst []string) {
+
+	basePath := strings.TrimPrefix(path.Join(bakPath, ofs), "/")
+
+	if GetDateTimeNow("dom") == MonthlyBackupDay && months > 0 {
+		dst = append(dst, path.Join(basePath, "monthly", bakFile))
+	}
+	if GetDateTimeNow("dow") == WeeklyBackupDay && weeks > 0 {
+		dst = append(dst, path.Join(basePath, "weekly", bakFile))
+	}
+	if days > 0 {
+		dst = append(dst, path.Join(basePath, "daily", bakFile))
 	}
 
 	return

@@ -1,12 +1,18 @@
 package interfaces
 
-import appctx "github.com/nixys/nxs-go-appctx/v2"
+import (
+	appctx "github.com/nixys/nxs-go-appctx/v2"
+
+	"nxs-backup/modules/storage"
+)
 
 type Storage interface {
 	CopyFile(appCtx *appctx.AppContext, tmpBackupPath, ofs string, move bool) error
 	ListFiles() error
 	ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) []error
 	IsLocal() int
+	BackupPathSet(path string)
+	RetentionSet(r storage.Retention)
 }
 
 type StorageSortByLocal []Storage

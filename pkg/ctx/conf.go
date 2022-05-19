@@ -1,25 +1,36 @@
 package ctx
 
 import (
+	"crypto/tls"
 	"fmt"
+	"io/ioutil"
 	"net/mail"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	conf "github.com/nixys/nxs-go-conf"
+	"github.com/pkg/sftp"
+	"github.com/prasad83/goftp"
+	"golang.org/x/crypto/ssh"
 
+	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backup"
+	"nxs-backup/modules/storage"
 )
 
 type confOpts struct {
-	ServerName  string       `conf:"server_name" conf_extraopts:"required"`
-	Mail        mailConf     `conf:"mail" conf_extraopts:"required"`
-	Jobs        []cfgJob     `conf:"jobs"`
-	Storages    []cfgStorage `conf:"storages"`
-	IncludeCfgs []string     `conf:"include_jobs_configs"`
+	ServerName      string              `conf:"server_name" conf_extraopts:"required"`
+	Mail            mailConf            `conf:"mail" conf_extraopts:"required"`
+	Jobs            []cfgJob            `conf:"jobs"`
+	StorageConnects []cfgStorageConnect `conf:"storage_connects"`
+	IncludeCfgs     []string            `conf:"include_jobs_configs"`
 
 	LogFile  string `conf:"logfile" conf_extraopts:"default=stdout"`
 	LogLevel string `conf:"loglevel" conf_extraopts:"default=info"`
@@ -40,16 +51,15 @@ type mailConf struct {
 }
 
 type cfgJob struct {
-	JobName              string       `conf:"job_name" conf_extraopts:"required"`
-	JobType              string       `conf:"type" conf_extraopts:"required"`
-	TmpDir               string       `conf:"tmp_dir" conf_extraopts:"required"`
-	DumpCmd              string       `conf:"dump_cmd"`
-	SafetyBackup         bool         `conf:"safety_backup" conf_extraopts:"default=false"`
-	DeferredCopyingLevel int          `conf:"deferred_copying_level" conf_extraopts:"default=0"`
-	IncMonthsToStore     int          `conf:"inc_months_to_store" conf_extraopts:"default=12"`
-	Sources              []cfgSource  `conf:"sources"`
-	Storages             []cfgStorage `conf:"storages"`
-	StorageNames         []string     `conf:"storage_names"`
+	JobName              string        `conf:"job_name" conf_extraopts:"required"`
+	JobType              string        `conf:"type" conf_extraopts:"required"`
+	TmpDir               string        `conf:"tmp_dir" conf_extraopts:"required"`
+	DumpCmd              string        `conf:"dump_cmd"`
+	SafetyBackup         bool          `conf:"safety_backup" conf_extraopts:"default=false"`
+	DeferredCopyingLevel int           `conf:"deferred_copying_level" conf_extraopts:"default=0"`
+	IncMonthsToStore     int           `conf:"inc_months_to_store" conf_extraopts:"default=12"`
+	Sources              []cfgSource   `conf:"sources"`
+	StoragesOptions      []storageOpts `conf:"storages_options"`
 }
 
 type cfgSource struct {
@@ -75,14 +85,12 @@ type cfgConnect struct {
 	PathToConf string `conf:"path_to_conf"`
 }
 
-type cfgStorage struct {
-	Name         string        `conf:"name" conf_extraopts:"required"`
-	Enable       bool          `conf:"enable" conf_extraopts:"default=true"`
-	Retention    cfgRetention  `conf:"retention" conf_extraopts:"required"`
-	LocalOptions *localOptions `conf:"local_options"`
-	S3Options    *s3Options    `conf:"s3_options"`
-	SFTPOptions  *sftpOptions  `conf:"sftp_options"`
-	SCPOptions   *sftpOptions  `conf:"scp_options"`
+type cfgStorageConnect struct {
+	Name       string      `conf:"name" conf_extraopts:"required"`
+	S3Params   *s3Params   `conf:"s3_params"`
+	SftpParams *sftpParams `conf:"sftp_params"`
+	ScpOptions *sftpParams `conf:"scp_params"`
+	FtpParams  *ftpParams  `conf:"ftp_params"`
 }
 
 type cfgRetention struct {
@@ -91,12 +99,13 @@ type cfgRetention struct {
 	Months int `conf:"months"`
 }
 
-type localOptions struct {
-	BackupPath string `conf:"backup_path" conf_extraopts:"required"`
+type storageOpts struct {
+	StorageName string       `conf:"storage_name" conf_extraopts:"required"`
+	BackupPath  string       `conf:"backup_path" conf_extraopts:"required"`
+	Retention   cfgRetention `conf:"retention" conf_extraopts:"required"`
 }
 
-type s3Options struct {
-	BackupPath      string `conf:"backup_path" conf_extraopts:"required"`
+type s3Params struct {
 	BucketName      string `conf:"bucket_name" conf_extraopts:"required"`
 	AccessKeyID     string `conf:"access_key_id"`
 	SecretAccessKey string `conf:"secret_access_key"`
@@ -104,14 +113,22 @@ type s3Options struct {
 	Region          string `conf:"region" conf_extraopts:"required"`
 }
 
-type sftpOptions struct {
-	BackupPath     string `conf:"backup_path" conf_extraopts:"required"`
+type sftpParams struct {
 	User           string `conf:"user" conf_extraopts:"required"`
 	Host           string `conf:"host" conf_extraopts:"required"`
 	Port           int    `conf:"port" conf_extraopts:"default=22"`
 	Password       string `conf:"password"`
 	KeyFile        string `conf:"key_file"`
-	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=60"`
+	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=10"`
+}
+
+type ftpParams struct {
+	Host           string `conf:"host"  conf_extraopts:"required"`
+	User           string `conf:"user"`
+	Password       string `conf:"password"`
+	Port           int    `conf:"port" conf_extraopts:"default=21"`
+	ConnectCount   int    `conf:"connection_count" conf_extraopts:"default=5"`
+	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
 func confRead(confPath string) (confOpts, error) {
@@ -223,72 +240,243 @@ func (c *confOpts) validate() error {
 	return nil
 }
 
-func getSettings(conf confOpts) (jobs []backup.JobSettings, sts map[string]backup.StorageSettings) {
+func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []interfaces.Job, errs []error) {
 
-	sts = make(map[string]backup.StorageSettings)
+	for _, j := range cfgJobs {
 
-	for _, j := range conf.Jobs {
+		// jobs validation
+		if len(j.JobName) == 0 {
+			errs = append(errs, fmt.Errorf("empty job name is unacceptable"))
+			continue
+		}
+		if !misc.Contains(misc.AllowedJobTypes, j.JobType) {
+			errs = append(errs, fmt.Errorf("unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(misc.AllowedJobTypes, ", ")))
+			continue
+		}
 
-		var srcs []backup.SourceSettings
-		var sns []string
+		needToMakeBackup := false
 
-		for _, src := range j.Sources {
-			srcs = append(srcs, backup.SourceSettings{
-				Targets:            src.Targets,
-				TargetDbs:          src.TargetDbs,
-				TargetCollections:  src.TargetCollections,
-				Excludes:           src.Excludes,
-				ExcludeDbs:         src.ExcludeDbs,
-				ExcludeCollections: src.ExcludeCollections,
-				SpecialKeys:        src.SpecialKeys,
-				Gzip:               src.Gzip,
-				SkipBackupRotate:   src.SkipBackupRotate,
-				ConnectSettings: backup.ConnectSettings{
-					Socket:     src.Connect.Socket,
-					AuthFile:   src.Connect.AuthFile,
-					DBHost:     src.Connect.DBHost,
-					DBPort:     src.Connect.DBPort,
-					DBUser:     src.Connect.DBUser,
-					DBPassword: src.Connect.DBPassword,
-					PathToConf: src.Connect.PathToConf,
-				},
+		var jobStorages []interfaces.Storage
+
+		for _, stOpts := range j.StoragesOptions {
+
+			// storages validation
+			s, ok := storages[stOpts.StorageName]
+			if !ok {
+				errs = append(errs, fmt.Errorf("unknown storage name: %s", stOpts.StorageName))
+				continue
+			}
+
+			if stOpts.Retention.Days < 0 || stOpts.Retention.Weeks < 0 || stOpts.Retention.Months < 0 {
+				errs = append(errs, fmt.Errorf("retention period can't be negative"))
+			}
+			if misc.NeedToMakeBackup(stOpts.Retention.Days, stOpts.Retention.Weeks, stOpts.Retention.Months) {
+				needToMakeBackup = true
+			}
+
+			s.BackupPathSet(stOpts.BackupPath)
+			s.RetentionSet(storage.Retention(stOpts.Retention))
+
+			jobStorages = append(jobStorages, s)
+		}
+
+		if len(jobStorages) > 1 {
+			sort.Sort(interfaces.StorageSortByLocal(jobStorages))
+		}
+
+		switch j.JobType {
+		case "desc_files":
+			var (
+				srcs         []backup.DescFilesSource
+				ofsPartsList backup.OfsPartsList
+			)
+			for _, s := range j.Sources {
+
+				var tgts []backup.TargetOfs
+				for _, targetPattern := range s.Targets {
+
+					for strings.HasSuffix(targetPattern, "/") {
+						targetPattern = strings.TrimSuffix(targetPattern, "/")
+					}
+
+					targetOfsList, err := filepath.Glob(targetPattern)
+					if err != nil {
+						errs = append(errs, fmt.Errorf("%s. Pattern: %s", err, targetPattern))
+						continue
+					}
+
+					targetOfsMap := make(map[string]string)
+					for _, ofs := range targetOfsList {
+
+						excluded := false
+						for _, exclPattern := range s.Excludes {
+
+							match, err := filepath.Match(exclPattern, ofs)
+							if err != nil {
+								errs = append(errs, fmt.Errorf("%s. Pattern: %s", err, exclPattern))
+								continue
+							}
+							if match {
+								excluded = true
+								break
+							}
+						}
+
+						if !excluded {
+							ofsPart := misc.GetOfsPart(targetPattern, ofs)
+							targetOfsMap[ofsPart] = ofs
+							ofsPartsList = append(ofsPartsList, ofsPart)
+						}
+					}
+
+					tgts = append(tgts, targetOfsMap)
+				}
+
+				srcs = append(srcs, backup.DescFilesSource{
+					Targets: tgts,
+					Gzip:    s.Gzip,
+				})
+			}
+
+			jobs = append(jobs, backup.DescFilesJob{
+				Name:                 j.JobName,
+				TmpDir:               j.TmpDir,
+				SafetyBackup:         j.SafetyBackup,
+				DeferredCopyingLevel: j.DeferredCopyingLevel,
+				Sources:              srcs,
+				Storages:             jobStorages,
+				NeedToMakeBackup:     needToMakeBackup,
+				OfsPartsList:         ofsPartsList,
 			})
+		// "external" as default
+		default:
+
 		}
+	}
 
-		for _, st := range j.Storages {
+	return
+}
 
-			ss := backup.StorageSettings{
-				Enable:    st.Enable,
-				Retention: backup.RetentionSettings(st.Retention),
+func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, errs []error) {
+
+	storagesMap = make(map[string]interfaces.Storage)
+
+	for _, st := range conf.StorageConnects {
+
+		if st.S3Params != nil {
+
+			s3Client, err := minio.New(st.S3Params.Endpoint, &minio.Options{
+				Creds:  credentials.NewStaticV4(st.S3Params.AccessKeyID, st.S3Params.SecretAccessKey, ""),
+				Secure: true,
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
 			}
-			if st.S3Options != nil {
-				ss.Type = "s3"
-				ss.S3Options = backup.S3Options(*st.S3Options)
-			} else if st.SCPOptions != nil {
-				ss.Type = "scp"
-				ss.SFTPOptions = backup.SFTPOptions(*st.SCPOptions)
-			} else if st.SFTPOptions != nil {
-				ss.Type = "sftp"
-				ss.SFTPOptions = backup.SFTPOptions(*st.SFTPOptions)
-			} else if st.LocalOptions != nil {
-				ss.Type = "local"
-				ss.LocalOptions = backup.LocalOptions(*st.LocalOptions)
+
+			storagesMap[st.Name] = &storage.S3{
+				Client:     s3Client,
+				BucketName: st.S3Params.BucketName,
 			}
-			sts[st.Name] = ss
-			sns = append(sns, st.Name)
+
+		} else if st.ScpOptions != nil || st.SftpParams != nil {
+
+			var opts *sftpParams
+
+			if st.ScpOptions != nil {
+				opts = st.ScpOptions
+			} else {
+				opts = st.SftpParams
+			}
+
+			sshConfig := &ssh.ClientConfig{
+				User:            opts.User,
+				Auth:            []ssh.AuthMethod{},
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+				Timeout:         time.Duration(opts.ConnectTimeout) * time.Second,
+				ClientVersion:   "SSH-2.0-" + "nxs-backup/" + misc.VERSION,
+			}
+
+			if st.SftpParams.Password != "" {
+				sshConfig.Auth = append(sshConfig.Auth, ssh.Password(opts.Password))
+			}
+
+			// Load key file if specified
+			if opts.KeyFile != "" {
+				key, err := ioutil.ReadFile(opts.KeyFile)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("failed to read private key file: %w", err))
+					continue
+				}
+				signer, err := ssh.ParsePrivateKey(key)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("failed to parse private key file: %w", err))
+					continue
+				}
+				sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
+			}
+
+			sshConn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", opts.Host, opts.Port), sshConfig)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("couldn't connect SSH: %w", err))
+			}
+
+			sftpClient, err := sftp.NewClient(sshConn)
+			if err != nil {
+				_ = sshConn.Close()
+				errs = append(errs, fmt.Errorf("couldn't initialise SFTP: %w", err))
+				continue
+			}
+
+			storagesMap[st.Name] = &storage.SFTP{
+				Client: sftpClient,
+			}
+		} else if st.FtpParams != nil {
+
+			configWithoutTLS := goftp.Config{
+				User:               st.FtpParams.User,
+				Password:           st.FtpParams.Password,
+				ConnectionsPerHost: st.FtpParams.ConnectCount,
+				Timeout:            time.Duration(st.FtpParams.ConnectTimeout) * time.Minute,
+				//Logger:             os.Stdout,
+			}
+			configWithTLS := configWithoutTLS
+			configWithTLS.TLSConfig = &tls.Config{
+				InsecureSkipVerify: true,
+				//ClientSessionCache: tls.NewLRUClientSessionCache(32),
+			}
+			//configWithTLS.TLSMode = goftp.TLSExplicit
+
+			// Attempt to connect using FTPS
+			if client, err := goftp.DialConfig(configWithTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(st.FtpParams.Host, "ftps://"), st.FtpParams.Port)); err == nil {
+				if _, err = client.ReadDir("/"); err != nil {
+					client.Close()
+				} else {
+					storagesMap[st.Name] = &storage.FTP{
+						Client: client,
+					}
+				}
+			}
+
+			// Attempt to create an FTP connection if FTPS isn't available
+			if storagesMap[st.Name] == nil {
+				client, err := goftp.DialConfig(configWithoutTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(st.FtpParams.Host, "ftp://"), st.FtpParams.Port))
+				if err != nil {
+					return
+				}
+				if _, err = client.ReadDir("/"); err != nil {
+					client.Close()
+					return
+				}
+				storagesMap[st.Name] = &storage.FTP{
+					Client: client,
+				}
+			}
+
+		} else {
+			errs = append(errs, fmt.Errorf("unable to define `%s` storage connect type by its params. Allowed connect params: %s", st.Name, strings.Join(misc.AllowedStorageConnectParams, ", ")))
 		}
-
-		jobs = append(jobs, backup.JobSettings{
-			JobName:              j.JobName,
-			JobType:              j.JobType,
-			TmpDir:               j.TmpDir,
-			DumpCmd:              j.DumpCmd,
-			SafetyBackup:         j.SafetyBackup,
-			DeferredCopyingLevel: j.DeferredCopyingLevel,
-			IncMonthsToStore:     j.IncMonthsToStore,
-			Sources:              srcs,
-			StorageNames:         append(sns, j.StorageNames...),
-		})
+		storagesMap["local"] = &storage.Local{}
 	}
 
 	return

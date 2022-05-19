@@ -15,17 +15,21 @@ import (
 )
 
 type S3 struct {
-	Client *minio.Client
-	S3Options
+	Client     *minio.Client
+	BucketName string
+	BackupPath string
 	Retention
 }
 
-type S3Options struct {
-	BackupPath string
-	BucketName string
+func (s *S3) IsLocal() int { return 0 }
+
+func (s *S3) BackupPathSet(path string) {
+	s.BackupPath = path
 }
 
-func (s *S3) IsLocal() int { return 0 }
+func (s *S3) RetentionSet(r Retention) {
+	s.Retention = r
+}
 
 func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
 
@@ -40,7 +44,7 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 		return err
 	}
 
-	bucketPaths := s.getDstList(filepath.Base(tmpBackup), ofs)
+	bucketPaths := misc.GetDstList(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
 
 	for _, bucketPath := range bucketPaths {
 		n, err := s.Client.PutObject(context.Background(), s.BucketName, bucketPath, source, sourceStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
@@ -99,23 +103,6 @@ func (s *S3) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (err
 	for rErr := range s.Client.RemoveObjects(context.Background(), s.BucketName, objCh, minio.RemoveObjectsOptions{GovernanceBypass: true}) {
 		appCtx.Log().Errorf("Error detected during deletion: '%s'", rErr)
 		errs = append(errs, err)
-	}
-
-	return
-}
-
-func (s *S3) getDstList(bakFile, ofs string) (dst []string) {
-
-	basePath := strings.TrimPrefix(path.Join(s.BackupPath, ofs), "/")
-
-	if misc.GetDateTimeNow("dom") == misc.MonthlyBackupDay && s.Months > 0 {
-		dst = append(dst, path.Join(basePath, "monthly", bakFile))
-	}
-	if misc.GetDateTimeNow("dow") == misc.WeeklyBackupDay && s.Weeks > 0 {
-		dst = append(dst, path.Join(basePath, "weekly", bakFile))
-	}
-	if s.Days > 0 {
-		dst = append(dst, path.Join(basePath, "daily", bakFile))
 	}
 
 	return

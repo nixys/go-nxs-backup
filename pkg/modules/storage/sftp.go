@@ -1,13 +1,15 @@
 package storage
 
 import (
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"github.com/pkg/sftp"
 	"io"
-	"nxs-backup/misc"
 	"os"
 	"path/filepath"
 	"time"
+
+	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"github.com/pkg/sftp"
+
+	"nxs-backup/misc"
 )
 
 type SFTP struct {
@@ -17,6 +19,14 @@ type SFTP struct {
 }
 
 func (s *SFTP) IsLocal() int { return 0 }
+
+func (s *SFTP) BackupPathSet(path string) {
+	s.BackupPath = path
+}
+
+func (s *SFTP) RetentionSet(r Retention) {
+	s.Retention = r
+}
 
 func (s *SFTP) ListFiles() (err error) {
 	return

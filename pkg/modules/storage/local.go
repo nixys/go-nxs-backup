@@ -24,6 +24,14 @@ type Local struct {
 
 func (l *Local) IsLocal() int { return 1 }
 
+func (l *Local) BackupPathSet(path string) {
+	l.BackupPath = path
+}
+
+func (l *Local) RetentionSet(r Retention) {
+	l.Retention = r
+}
+
 func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move bool) (err error) {
 
 	source, err := os.Open(tmpBackup)

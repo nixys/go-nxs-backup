@@ -8,14 +8,12 @@ import (
 
 	"nxs-backup/ctx/args"
 	"nxs-backup/interfaces"
-	"nxs-backup/modules/backup"
 )
 
 // Ctx defines application custom context
 type Ctx struct {
 	CmdParams interface{}
 	Jobs      []interfaces.Job
-	Storages  map[string]interfaces.Storage
 }
 
 // Init initiates application custom context
@@ -32,8 +30,16 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	arg := opts.Args.(*args.Params)
 	c.CmdParams = arg.CmdParams
 
-	var errs []error
-	c.Jobs, errs = backup.JobsInit(getSettings(conf))
+	storages, errs := storagesInit(conf)
+	if len(errs) > 0 {
+		fmt.Println("Failed init storages with next errors:")
+		for _, err = range errs {
+			fmt.Printf("  %s\n", err)
+		}
+		os.Exit(1)
+	}
+
+	c.Jobs, errs = jobsInit(conf.Jobs, storages)
 	if len(errs) > 0 {
 		fmt.Println("Failed init jobs with next errors:")
 		for _, err = range errs {
