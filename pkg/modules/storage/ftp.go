@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"time"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -42,7 +41,7 @@ func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to open tmp backup: '%f'", err)
+		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
 		return err
 	}
 	defer srcFile.Close()
@@ -54,11 +53,11 @@ func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	//	return err
 	//}
 
-	remotePaths := misc.GetDstList(filepath.Base(tmpBackup), ofs, f.BackupPath, f.Days, f.Weeks, f.Months)
+	remotePaths := misc.GetDstList(path.Base(tmpBackup), ofs, f.BackupPath, f.Days, f.Weeks, f.Months)
 
 	for _, dstPath := range remotePaths {
 		// Make remote directories
-		dstDir := filepath.Dir(dstPath)
+		dstDir := path.Dir(dstPath)
 		err = f.mkDir(dstDir)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
@@ -78,7 +77,7 @@ func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 		//}
 		if err != nil {
 			//_ = f.Client.Close()
-			appCtx.Log().Errorf("Unable to upload file: %v", err)
+			appCtx.Log().Errorf("Unable to upload file: %s", err)
 			return err
 		}
 		appCtx.Log().Infof("%s file successfully uploaded", srcFile.Name())
@@ -94,11 +93,11 @@ func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (er
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
 		for _, ofsPart := range ofsPartsList {
-			bakDir := filepath.Join(f.BackupPath, ofsPart, period)
+			bakDir := path.Join(f.BackupPath, ofsPart, period)
 			files, err := f.Client.ReadDir(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					appCtx.Log().Warnf("Error: %f", err)
+					appCtx.Log().Warnf("Error: %s", err)
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
@@ -121,13 +120,13 @@ func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (er
 
 				retentionDate = retentionDate.Truncate(24 * time.Hour)
 				if curDate.After(retentionDate) {
-					err = f.Client.Delete(filepath.Join(bakDir, file.Name()))
+					err = f.Client.Delete(path.Join(bakDir, file.Name()))
 					if err != nil {
-						appCtx.Log().Errorf("Failed to delete file '%f' in remote directory '%f' with next error: %f",
+						appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 							file.Name(), bakDir, err)
 						errs = append(errs, err)
 					} else {
-						appCtx.Log().Infof("Deleted old backup file '%f' in remote directory '%f'", file.Name(), bakDir)
+						appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 					}
 				}
 			}

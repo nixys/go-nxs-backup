@@ -4,12 +4,12 @@ go 1.17
 
 require (
 	github.com/alexflint/go-arg v1.4.3
-	github.com/jlaffaye/ftp v0.0.0-20220310202011-d2c44e311e78
 	github.com/minio/minio-go/v7 v7.0.24
 	github.com/nixys/nxs-go-appctx/v2 v2.0.0
 	github.com/nixys/nxs-go-conf v1.0.1
 	github.com/pkg/sftp v1.13.5-0.20211228200725-31aac3e1878d
 	github.com/prasad83/goftp v0.0.0-20210325080443-f57aaed46a32
+	github.com/vmware/go-nfs-client v0.0.0-20190605212624-d43b92724c1b
 	golang.org/x/crypto v0.0.0-20220331220935-ae2d96664a29
 )
 
@@ -18,8 +18,6 @@ require (
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
-	github.com/hashicorp/errwrap v1.0.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
@@ -31,6 +29,7 @@ require (
 	github.com/mitchellh/mapstructure v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/rs/xid v1.2.1 // indirect
 	github.com/secsy/goftp v0.0.0-20200609142545-aa2de14babf4 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect

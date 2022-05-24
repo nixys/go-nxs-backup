@@ -57,14 +57,14 @@ func (s *SFTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool
 
 	dstFile, err := s.Client.Create(dstPath)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create remote file: %v", err)
+		appCtx.Log().Errorf("Unable to create remote file: %s", err)
 		return err
 	}
 	defer dstFile.Close()
 
 	bytes, err := io.Copy(dstFile, srcFile)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to upload file: %v", err)
+		appCtx.Log().Errorf("Unable to upload file: %s", err)
 		return err
 	}
 	appCtx.Log().Infof("%s file crated. %d bytes copied", dstFile.Name(), bytes)
@@ -78,7 +78,7 @@ func (s *SFTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool
 		}
 		err = s.Client.Symlink(src, dst)
 		if err != nil {
-			appCtx.Log().Errorf("Unable to create symlink: %v", err)
+			appCtx.Log().Errorf("Unable to create symlink: %s", err)
 			return err
 		}
 	}

@@ -1,6 +1,8 @@
 package backup
 
 import (
+	"os"
+
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
@@ -21,6 +23,18 @@ func (o DumpedObjects) Delivery(appCtx *appctx.AppContext, storages []interfaces
 			if err != nil {
 				errs = append(errs, err)
 			}
+		}
+		_, err := os.Stat(tmpBackupPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				errs = append(errs, err)
+			}
+		} else {
+			err = os.Remove(tmpBackupPath)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			appCtx.Log().Infof("deleted temp file '%s'", tmpBackupPath)
 		}
 	}
 	return

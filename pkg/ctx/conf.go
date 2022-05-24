@@ -17,6 +17,8 @@ import (
 	conf "github.com/nixys/nxs-go-conf"
 	"github.com/pkg/sftp"
 	"github.com/prasad83/goftp"
+	"github.com/vmware/go-nfs-client/nfs"
+	"github.com/vmware/go-nfs-client/nfs/rpc"
 	"golang.org/x/crypto/ssh"
 
 	"nxs-backup/interfaces"
@@ -91,6 +93,7 @@ type cfgStorageConnect struct {
 	SftpParams *sftpParams `conf:"sftp_params"`
 	ScpOptions *sftpParams `conf:"scp_params"`
 	FtpParams  *ftpParams  `conf:"ftp_params"`
+	NfsParams  *nfsParams  `conf:"nfs_params"`
 }
 
 type cfgRetention struct {
@@ -129,6 +132,14 @@ type ftpParams struct {
 	Port           int    `conf:"port" conf_extraopts:"default=21"`
 	ConnectCount   int    `conf:"connection_count" conf_extraopts:"default=5"`
 	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=10"`
+}
+
+type nfsParams struct {
+	Host   string `conf:"host"  conf_extraopts:"required"`
+	Target string `conf:"target"`
+	UID    uint32 `conf:"uid" conf_extraopts:"default=1000"`
+	GID    uint32 `conf:"gid" conf_extraopts:"default=1000"`
+	Port   int    `conf:"port" conf_extraopts:"default=111"`
 }
 
 func confRead(confPath string) (confOpts, error) {
@@ -358,119 +369,44 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 }
 
 func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, errs []error) {
-
+	var err error
 	storagesMap = make(map[string]interfaces.Storage)
 
 	for _, st := range conf.StorageConnects {
 
 		if st.S3Params != nil {
 
-			s3Client, err := minio.New(st.S3Params.Endpoint, &minio.Options{
-				Creds:  credentials.NewStaticV4(st.S3Params.AccessKeyID, st.S3Params.SecretAccessKey, ""),
-				Secure: true,
-			})
+			storagesMap[st.Name], err = s3StorageInit(st.S3Params)
 			if err != nil {
 				errs = append(errs, err)
-				continue
 			}
 
-			storagesMap[st.Name] = &storage.S3{
-				Client:     s3Client,
-				BucketName: st.S3Params.BucketName,
-			}
+		} else if st.ScpOptions != nil {
 
-		} else if st.ScpOptions != nil || st.SftpParams != nil {
-
-			var opts *sftpParams
-
-			if st.ScpOptions != nil {
-				opts = st.ScpOptions
-			} else {
-				opts = st.SftpParams
-			}
-
-			sshConfig := &ssh.ClientConfig{
-				User:            opts.User,
-				Auth:            []ssh.AuthMethod{},
-				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-				Timeout:         time.Duration(opts.ConnectTimeout) * time.Second,
-				ClientVersion:   "SSH-2.0-" + "nxs-backup/" + misc.VERSION,
-			}
-
-			if st.SftpParams.Password != "" {
-				sshConfig.Auth = append(sshConfig.Auth, ssh.Password(opts.Password))
-			}
-
-			// Load key file if specified
-			if opts.KeyFile != "" {
-				key, err := ioutil.ReadFile(opts.KeyFile)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("failed to read private key file: %w", err))
-					continue
-				}
-				signer, err := ssh.ParsePrivateKey(key)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("failed to parse private key file: %w", err))
-					continue
-				}
-				sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
-			}
-
-			sshConn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", opts.Host, opts.Port), sshConfig)
+			storagesMap[st.Name], err = sftpStorageInit(st.ScpOptions)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("couldn't connect SSH: %w", err))
+				errs = append(errs, err)
 			}
 
-			sftpClient, err := sftp.NewClient(sshConn)
+		} else if st.SftpParams != nil {
+
+			storagesMap[st.Name], err = sftpStorageInit(st.SftpParams)
 			if err != nil {
-				_ = sshConn.Close()
-				errs = append(errs, fmt.Errorf("couldn't initialise SFTP: %w", err))
-				continue
+				errs = append(errs, err)
 			}
 
-			storagesMap[st.Name] = &storage.SFTP{
-				Client: sftpClient,
-			}
 		} else if st.FtpParams != nil {
 
-			configWithoutTLS := goftp.Config{
-				User:               st.FtpParams.User,
-				Password:           st.FtpParams.Password,
-				ConnectionsPerHost: st.FtpParams.ConnectCount,
-				Timeout:            time.Duration(st.FtpParams.ConnectTimeout) * time.Minute,
-				//Logger:             os.Stdout,
-			}
-			configWithTLS := configWithoutTLS
-			configWithTLS.TLSConfig = &tls.Config{
-				InsecureSkipVerify: true,
-				//ClientSessionCache: tls.NewLRUClientSessionCache(32),
-			}
-			//configWithTLS.TLSMode = goftp.TLSExplicit
-
-			// Attempt to connect using FTPS
-			if client, err := goftp.DialConfig(configWithTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(st.FtpParams.Host, "ftps://"), st.FtpParams.Port)); err == nil {
-				if _, err = client.ReadDir("/"); err != nil {
-					client.Close()
-				} else {
-					storagesMap[st.Name] = &storage.FTP{
-						Client: client,
-					}
-				}
+			storagesMap[st.Name], err = ftpStorageInit(st.FtpParams)
+			if err != nil {
+				errs = append(errs, err)
 			}
 
-			// Attempt to create an FTP connection if FTPS isn't available
-			if storagesMap[st.Name] == nil {
-				client, err := goftp.DialConfig(configWithoutTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(st.FtpParams.Host, "ftp://"), st.FtpParams.Port))
-				if err != nil {
-					return
-				}
-				if _, err = client.ReadDir("/"); err != nil {
-					client.Close()
-					return
-				}
-				storagesMap[st.Name] = &storage.FTP{
-					Client: client,
-				}
+		} else if st.NfsParams != nil {
+
+			storagesMap[st.Name], err = nfsStorageInit(st.NfsParams)
+			if err != nil {
+				errs = append(errs, err)
 			}
 
 		} else {
@@ -480,4 +416,139 @@ func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, err
 	}
 
 	return
+}
+
+func s3StorageInit(params *s3Params) (*storage.S3, error) {
+
+	s3Client, err := minio.New(params.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(params.AccessKeyID, params.SecretAccessKey, ""),
+		Secure: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &storage.S3{
+		Client:     s3Client,
+		BucketName: params.BucketName,
+	}, nil
+}
+
+func sftpStorageInit(params *sftpParams) (*storage.SFTP, error) {
+
+	sshConfig := &ssh.ClientConfig{
+		User:            params.User,
+		Auth:            []ssh.AuthMethod{},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         time.Duration(params.ConnectTimeout) * time.Second,
+		ClientVersion:   "SSH-2.0-" + "nxs-backup/" + misc.VERSION,
+	}
+
+	if params.Password != "" {
+		sshConfig.Auth = append(sshConfig.Auth, ssh.Password(params.Password))
+	}
+
+	// Load key file if specified
+	if params.KeyFile != "" {
+		key, err := ioutil.ReadFile(params.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read private key file: %w", err)
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key file: %w", err)
+		}
+		sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
+	}
+
+	sshConn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", params.Host, params.Port), sshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't connect SSH: %w", err)
+	}
+
+	sftpClient, err := sftp.NewClient(sshConn)
+	if err != nil {
+		_ = sshConn.Close()
+		return nil, fmt.Errorf("couldn't initialise SFTP: %w", err)
+	}
+
+	return &storage.SFTP{
+		Client: sftpClient,
+	}, nil
+
+}
+
+func ftpStorageInit(params *ftpParams) (s *storage.FTP, err error) {
+
+	configWithoutTLS := goftp.Config{
+		User:               params.User,
+		Password:           params.Password,
+		ConnectionsPerHost: params.ConnectCount,
+		Timeout:            time.Duration(params.ConnectTimeout) * time.Minute,
+		//Logger:             os.Stdout,
+	}
+	configWithTLS := configWithoutTLS
+	configWithTLS.TLSConfig = &tls.Config{
+		InsecureSkipVerify: true,
+		//ClientSessionCache: tls.NewLRUClientSessionCache(32),
+	}
+	//configWithTLS.TLSMode = goftp.TLSExplicit
+
+	var client *goftp.Client
+	// Attempt to connect using FTPS
+	if client, err = goftp.DialConfig(configWithTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(params.Host, "ftps://"), params.Port)); err == nil {
+		if _, err = client.ReadDir("/"); err != nil {
+			_ = client.Close()
+		} else {
+			s = &storage.FTP{
+				Client: client,
+			}
+		}
+	}
+
+	// Attempt to create an FTP connection if FTPS isn't available
+	if s == nil {
+		client, err = goftp.DialConfig(configWithoutTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(params.Host, "ftp://"), params.Port))
+		if err != nil {
+			return
+		}
+		if _, err = client.ReadDir("/"); err != nil {
+			_ = client.Close()
+			return
+		}
+		s = &storage.FTP{
+			Client: client,
+		}
+	}
+
+	return
+}
+
+func nfsStorageInit(params *nfsParams) (*storage.NFS, error) {
+
+	mount, err := nfs.DialMount(params.Host)
+	if err != nil {
+		return nil, fmt.Errorf("unable to dial MOUNT service: %s", err)
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, err
+	}
+
+	auth := rpc.NewAuthUnix(hostname, params.UID, params.GID)
+
+	target, err := mount.Mount(params.Target, auth.Auth())
+	if err != nil {
+		return nil, fmt.Errorf("unable to mount volume: %s", err)
+	}
+
+	_, err = target.FSInfo()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get target status: %s", err)
+	}
+
+	return &storage.NFS{
+		Target: target,
+	}, nil
 }

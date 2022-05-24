@@ -84,23 +84,26 @@ func (j DescFilesJob) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 						errs = append(errs, err)
 						continue
 					} else {
-						appCtx.Log().Infof("Successfily created temp backups %s by job %s", tmpBackupFullPath, j.Name)
+						appCtx.Log().Infof("created temp backups %s by job %s", tmpBackupFullPath, j.Name)
 					}
 
 					j.DumpedObjects[ofsPart] = tmpBackupFullPath
 
 					if j.DeferredCopyingLevel <= 0 {
-						j.DumpedObjects.Delivery(appCtx, j.Storages)
+						errLst := j.DumpedObjects.Delivery(appCtx, j.Storages)
+						errs = append(errs, errLst...)
 						j.DumpedObjects = make(map[string]string)
 					}
 				}
 				if j.DeferredCopyingLevel == 1 {
-					j.DumpedObjects.Delivery(appCtx, j.Storages)
+					errLst := j.DumpedObjects.Delivery(appCtx, j.Storages)
+					errs = append(errs, errLst...)
 					j.DumpedObjects = make(map[string]string)
 				}
 			}
 			if j.DeferredCopyingLevel >= 2 {
-				j.DumpedObjects.Delivery(appCtx, j.Storages)
+				errLst := j.DumpedObjects.Delivery(appCtx, j.Storages)
+				errs = append(errs, errLst...)
 				j.DumpedObjects = make(map[string]string)
 			}
 		}

@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"nxs-backup/misc"
 	"os"
-	"path/filepath"
+	"path"
 	"time"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -40,12 +40,12 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 	}
 	defer source.Close()
 
-	dstPath, links, err := misc.GetDstAndLinks(filepath.Base(tmpBackup), ofs, l.BackupPath, l.Days, l.Weeks, l.Months)
+	dstPath, links, err := misc.GetDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, l.Days, l.Weeks, l.Months)
 	if err != nil {
 		return
 	}
 
-	err = os.MkdirAll(filepath.Dir(dstPath), os.ModePerm)
+	err = os.MkdirAll(path.Dir(dstPath), os.ModePerm)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
 		return err
@@ -63,7 +63,7 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 	}
 
 	for dst, src := range links {
-		err = os.MkdirAll(filepath.Dir(dst), os.ModePerm)
+		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
 			return err
@@ -94,7 +94,7 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
 		for _, ofsPart := range ofsPartsList {
-			backupDir := filepath.Join(l.BackupPath, ofsPart, period)
+			backupDir := path.Join(l.BackupPath, ofsPart, period)
 			files, err := ioutil.ReadDir(backupDir)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -121,7 +121,7 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (
 
 				retentionDate = retentionDate.Truncate(24 * time.Hour)
 				if curDate.After(retentionDate) {
-					err = os.Remove(filepath.Join(backupDir, file.Name()))
+					err = os.Remove(path.Join(backupDir, file.Name()))
 					if err != nil {
 						appCtx.Log().Errorf("Failed to delete file '%s' in directory '%s' with next error: %s",
 							file.Name(), backupDir, err)
