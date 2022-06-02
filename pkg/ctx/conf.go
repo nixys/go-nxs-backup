@@ -23,6 +23,7 @@ import (
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/backend/webdav"
 	"nxs-backup/modules/backup"
 	"nxs-backup/modules/storage"
 )
@@ -88,12 +89,13 @@ type cfgConnect struct {
 }
 
 type cfgStorageConnect struct {
-	Name       string      `conf:"name" conf_extraopts:"required"`
-	S3Params   *s3Params   `conf:"s3_params"`
-	SftpParams *sftpParams `conf:"sftp_params"`
-	ScpOptions *sftpParams `conf:"scp_params"`
-	FtpParams  *ftpParams  `conf:"ftp_params"`
-	NfsParams  *nfsParams  `conf:"nfs_params"`
+	Name         string        `conf:"name" conf_extraopts:"required"`
+	S3Params     *s3Params     `conf:"s3_params"`
+	SftpParams   *sftpParams   `conf:"sftp_params"`
+	ScpOptions   *sftpParams   `conf:"scp_params"`
+	FtpParams    *ftpParams    `conf:"ftp_params"`
+	NfsParams    *nfsParams    `conf:"nfs_params"`
+	WebDavParams *webDavParams `conf:"webdav_params"`
 }
 
 type cfgRetention struct {
@@ -140,6 +142,14 @@ type nfsParams struct {
 	UID    uint32 `conf:"uid" conf_extraopts:"default=1000"`
 	GID    uint32 `conf:"gid" conf_extraopts:"default=1000"`
 	Port   int    `conf:"port" conf_extraopts:"default=111"`
+}
+
+type webDavParams struct {
+	URL               string        `conf:"url"  conf_extraopts:"required"`
+	Username          string        `conf:"username"`
+	Password          string        `conf:"password"`
+	OAuthToken        string        `conf:"oauth_token"`
+	ConnectionTimeout time.Duration `conf:"timeout"`
 }
 
 func confRead(confPath string) (confOpts, error) {
@@ -409,6 +419,13 @@ func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, err
 				errs = append(errs, err)
 			}
 
+		} else if st.WebDavParams != nil {
+
+			storagesMap[st.Name], err = webDavStorageInit(st.WebDavParams)
+			if err != nil {
+				errs = append(errs, err)
+			}
+
 		} else {
 			errs = append(errs, fmt.Errorf("unable to define `%s` storage connect type by its params. Allowed connect params: %s", st.Name, strings.Join(misc.AllowedStorageConnectParams, ", ")))
 		}
@@ -550,5 +567,23 @@ func nfsStorageInit(params *nfsParams) (*storage.NFS, error) {
 
 	return &storage.NFS{
 		Target: target,
+	}, nil
+}
+
+func webDavStorageInit(params *webDavParams) (*storage.WebDav, error) {
+
+	client, err := webdav.Init(webdav.Params{
+		URL:               params.URL,
+		Username:          params.Username,
+		Password:          params.Password,
+		OAuthToken:        params.OAuthToken,
+		ConnectionTimeout: params.ConnectionTimeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &storage.WebDav{
+		Client: client,
 	}, nil
 }
