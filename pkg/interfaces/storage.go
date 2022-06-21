@@ -7,12 +7,11 @@ import (
 )
 
 type Storage interface {
-	CopyFile(appCtx *appctx.AppContext, tmpBackupPath, ofs string, move bool) error
-	ListFiles() error
-	ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) []error
 	IsLocal() int
-	BackupPathSet(path string)
-	RetentionSet(r storage.Retention)
+	SetBackupPath(path string)
+	SetRetention(r storage.Retention)
+	CopyFile(appCtx *appctx.AppContext, tmpBackupPath, ofs string, move bool) error
+	ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) []error
 }
 
 type StorageSortByLocal []Storage

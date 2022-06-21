@@ -1,4 +1,4 @@
-package storage
+package s3
 
 import (
 	"context"
@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/misc"
+	. "nxs-backup/modules/storage"
 )
 
 type S3 struct {
@@ -21,13 +23,37 @@ type S3 struct {
 	Retention
 }
 
+type Params struct {
+	BucketName      string `conf:"bucket_name" conf_extraopts:"required"`
+	AccessKeyID     string `conf:"access_key_id"`
+	SecretAccessKey string `conf:"secret_access_key"`
+	Endpoint        string `conf:"endpoint" conf_extraopts:"required"`
+	Region          string `conf:"region" conf_extraopts:"required"`
+}
+
+func Init(params Params) (*S3, error) {
+
+	s3Client, err := minio.New(params.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(params.AccessKeyID, params.SecretAccessKey, ""),
+		Secure: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &S3{
+		Client:     s3Client,
+		BucketName: params.BucketName,
+	}, nil
+}
+
 func (s *S3) IsLocal() int { return 0 }
 
-func (s *S3) BackupPathSet(path string) {
+func (s *S3) SetBackupPath(path string) {
 	s.BackupPath = path
 }
 
-func (s *S3) RetentionSet(r Retention) {
+func (s *S3) SetRetention(r Retention) {
 	s.Retention = r
 }
 
@@ -55,10 +81,6 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 	}
 
 	return nil
-}
-
-func (s *S3) ListFiles() (err error) {
-	return
 }
 
 func (s *S3) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {

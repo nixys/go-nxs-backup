@@ -1,7 +1,10 @@
-package storage
+package sftp
 
 import (
+	"fmt"
+	"golang.org/x/crypto/ssh"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -10,6 +13,7 @@ import (
 	"github.com/pkg/sftp"
 
 	"nxs-backup/misc"
+	. "nxs-backup/modules/storage"
 )
 
 type SFTP struct {
@@ -18,13 +22,66 @@ type SFTP struct {
 	Retention
 }
 
+type Params struct {
+	User           string
+	Host           string
+	Port           int
+	Password       string
+	KeyFile        string
+	ConnectTimeout int
+}
+
+func Init(params Params) (*SFTP, error) {
+
+	sshConfig := &ssh.ClientConfig{
+		User:            params.User,
+		Auth:            []ssh.AuthMethod{},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         time.Duration(params.ConnectTimeout) * time.Second,
+		ClientVersion:   "SSH-2.0-" + "nxs-backup/" + misc.VERSION,
+	}
+
+	if params.Password != "" {
+		sshConfig.Auth = append(sshConfig.Auth, ssh.Password(params.Password))
+	}
+
+	// Load key file if specified
+	if params.KeyFile != "" {
+		key, err := ioutil.ReadFile(params.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read private key file: %w", err)
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key file: %w", err)
+		}
+		sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
+	}
+
+	sshConn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", params.Host, params.Port), sshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't connect SSH: %w", err)
+	}
+
+	sftpClient, err := sftp.NewClient(sshConn)
+	if err != nil {
+		_ = sshConn.Close()
+		return nil, fmt.Errorf("couldn't initialise SFTP: %w", err)
+	}
+
+	return &SFTP{
+		Client: sftpClient,
+	}, nil
+
+}
+
 func (s *SFTP) IsLocal() int { return 0 }
 
-func (s *SFTP) BackupPathSet(path string) {
+func (s *SFTP) SetBackupPath(path string) {
 	s.BackupPath = path
 }
 
-func (s *SFTP) RetentionSet(r Retention) {
+func (s *SFTP) SetRetention(r Retention) {
 	s.Retention = r
 }
 

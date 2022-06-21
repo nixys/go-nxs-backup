@@ -1,34 +1,34 @@
-package storage
+package local
 
 import (
 	"io"
 	"io/ioutil"
-	"nxs-backup/misc"
 	"os"
 	"path"
 	"time"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-)
 
-type Retention struct {
-	Days   int
-	Weeks  int
-	Months int
-}
+	"nxs-backup/misc"
+	. "nxs-backup/modules/storage"
+)
 
 type Local struct {
 	BackupPath string
 	Retention
 }
 
+func Init() *Local {
+	return &Local{}
+}
+
 func (l *Local) IsLocal() int { return 1 }
 
-func (l *Local) BackupPathSet(path string) {
+func (l *Local) SetBackupPath(path string) {
 	l.BackupPath = path
 }
 
-func (l *Local) RetentionSet(r Retention) {
+func (l *Local) SetRetention(r Retention) {
 	l.Retention = r
 }
 
@@ -59,6 +59,7 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 
 	_, err = io.Copy(destination, source)
 	if err != nil {
+		appCtx.Log().Errorf("Unable to make copy: %s", err)
 		return
 	}
 

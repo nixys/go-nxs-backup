@@ -1,9 +1,7 @@
 package ctx
 
 import (
-	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"net/mail"
 	"os"
 	"path"
@@ -12,20 +10,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	conf "github.com/nixys/nxs-go-conf"
-	"github.com/pkg/sftp"
-	"github.com/prasad83/goftp"
-	"github.com/vmware/go-nfs-client/nfs"
-	"github.com/vmware/go-nfs-client/nfs/rpc"
-	"golang.org/x/crypto/ssh"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/webdav"
 	"nxs-backup/modules/backup"
 	"nxs-backup/modules/storage"
+	"nxs-backup/modules/storage/ftp"
+	"nxs-backup/modules/storage/local"
+	"nxs-backup/modules/storage/nfs"
+	"nxs-backup/modules/storage/s3"
+	"nxs-backup/modules/storage/sftp"
+	"nxs-backup/modules/storage/smb"
+	"nxs-backup/modules/storage/webdav"
 )
 
 type confOpts struct {
@@ -96,6 +93,7 @@ type cfgStorageConnect struct {
 	FtpParams    *ftpParams    `conf:"ftp_params"`
 	NfsParams    *nfsParams    `conf:"nfs_params"`
 	WebDavParams *webDavParams `conf:"webdav_params"`
+	SmbParams    *smbParams    `conf:"smb_params"`
 }
 
 type cfgRetention struct {
@@ -128,12 +126,12 @@ type sftpParams struct {
 }
 
 type ftpParams struct {
-	Host           string `conf:"host"  conf_extraopts:"required"`
-	User           string `conf:"user"`
-	Password       string `conf:"password"`
-	Port           int    `conf:"port" conf_extraopts:"default=21"`
-	ConnectCount   int    `conf:"connection_count" conf_extraopts:"default=5"`
-	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=10"`
+	Host              string        `conf:"host"  conf_extraopts:"required"`
+	User              string        `conf:"user"`
+	Password          string        `conf:"password"`
+	Port              int           `conf:"port" conf_extraopts:"default=21"`
+	ConnectCount      int           `conf:"connection_count" conf_extraopts:"default=5"`
+	ConnectionTimeout time.Duration `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
 type nfsParams struct {
@@ -145,11 +143,21 @@ type nfsParams struct {
 }
 
 type webDavParams struct {
-	URL               string        `conf:"url"  conf_extraopts:"required"`
+	URL               string        `conf:"url" conf_extraopts:"required"`
 	Username          string        `conf:"username"`
 	Password          string        `conf:"password"`
 	OAuthToken        string        `conf:"oauth_token"`
-	ConnectionTimeout time.Duration `conf:"timeout"`
+	ConnectionTimeout time.Duration `conf:"timeout" conf_extraopts:"default=10"`
+}
+
+type smbParams struct {
+	Host              string        `conf:"host" conf_extraopts:"required"`
+	Port              int           `conf:"port" conf_extraopts:"default=445"`
+	User              string        `conf:"user" conf_extraopts:"default=Guest"`
+	Password          string        `conf:"password"`
+	Domain            string        `conf:"domain"`
+	Share             string        `conf:"share" conf_extraopts:"required"`
+	ConnectionTimeout time.Duration `conf:"timeout" conf_extraopts:"default=10"`
 }
 
 func confRead(confPath string) (confOpts, error) {
@@ -295,8 +303,8 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				needToMakeBackup = true
 			}
 
-			s.BackupPathSet(stOpts.BackupPath)
-			s.RetentionSet(storage.Retention(stOpts.Retention))
+			s.SetBackupPath(stOpts.BackupPath)
+			s.SetRetention(storage.Retention(stOpts.Retention))
 
 			jobStorages = append(jobStorages, s)
 		}
@@ -386,42 +394,49 @@ func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, err
 
 		if st.S3Params != nil {
 
-			storagesMap[st.Name], err = s3StorageInit(st.S3Params)
+			storagesMap[st.Name], err = s3.Init(s3.Params(*st.S3Params))
 			if err != nil {
 				errs = append(errs, err)
 			}
 
 		} else if st.ScpOptions != nil {
 
-			storagesMap[st.Name], err = sftpStorageInit(st.ScpOptions)
+			storagesMap[st.Name], err = sftp.Init(sftp.Params(*st.ScpOptions))
 			if err != nil {
 				errs = append(errs, err)
 			}
 
 		} else if st.SftpParams != nil {
 
-			storagesMap[st.Name], err = sftpStorageInit(st.SftpParams)
+			storagesMap[st.Name], err = sftp.Init(sftp.Params(*st.SftpParams))
 			if err != nil {
 				errs = append(errs, err)
 			}
 
 		} else if st.FtpParams != nil {
 
-			storagesMap[st.Name], err = ftpStorageInit(st.FtpParams)
+			storagesMap[st.Name], err = ftp.Init(ftp.Params(*st.FtpParams))
 			if err != nil {
 				errs = append(errs, err)
 			}
 
 		} else if st.NfsParams != nil {
 
-			storagesMap[st.Name], err = nfsStorageInit(st.NfsParams)
+			storagesMap[st.Name], err = nfs.Init(nfs.Params(*st.NfsParams))
 			if err != nil {
 				errs = append(errs, err)
 			}
 
 		} else if st.WebDavParams != nil {
 
-			storagesMap[st.Name], err = webDavStorageInit(st.WebDavParams)
+			storagesMap[st.Name], err = webdav.Init(webdav.Params(*st.WebDavParams))
+			if err != nil {
+				errs = append(errs, err)
+			}
+
+		} else if st.SmbParams != nil {
+
+			storagesMap[st.Name], err = smb.Init(smb.Params(*st.SmbParams))
 			if err != nil {
 				errs = append(errs, err)
 			}
@@ -429,161 +444,8 @@ func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, err
 		} else {
 			errs = append(errs, fmt.Errorf("unable to define `%s` storage connect type by its params. Allowed connect params: %s", st.Name, strings.Join(misc.AllowedStorageConnectParams, ", ")))
 		}
-		storagesMap["local"] = &storage.Local{}
+		storagesMap["local"] = local.Init()
 	}
 
 	return
-}
-
-func s3StorageInit(params *s3Params) (*storage.S3, error) {
-
-	s3Client, err := minio.New(params.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(params.AccessKeyID, params.SecretAccessKey, ""),
-		Secure: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &storage.S3{
-		Client:     s3Client,
-		BucketName: params.BucketName,
-	}, nil
-}
-
-func sftpStorageInit(params *sftpParams) (*storage.SFTP, error) {
-
-	sshConfig := &ssh.ClientConfig{
-		User:            params.User,
-		Auth:            []ssh.AuthMethod{},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Duration(params.ConnectTimeout) * time.Second,
-		ClientVersion:   "SSH-2.0-" + "nxs-backup/" + misc.VERSION,
-	}
-
-	if params.Password != "" {
-		sshConfig.Auth = append(sshConfig.Auth, ssh.Password(params.Password))
-	}
-
-	// Load key file if specified
-	if params.KeyFile != "" {
-		key, err := ioutil.ReadFile(params.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read private key file: %w", err)
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse private key file: %w", err)
-		}
-		sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
-	}
-
-	sshConn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", params.Host, params.Port), sshConfig)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't connect SSH: %w", err)
-	}
-
-	sftpClient, err := sftp.NewClient(sshConn)
-	if err != nil {
-		_ = sshConn.Close()
-		return nil, fmt.Errorf("couldn't initialise SFTP: %w", err)
-	}
-
-	return &storage.SFTP{
-		Client: sftpClient,
-	}, nil
-
-}
-
-func ftpStorageInit(params *ftpParams) (s *storage.FTP, err error) {
-
-	configWithoutTLS := goftp.Config{
-		User:               params.User,
-		Password:           params.Password,
-		ConnectionsPerHost: params.ConnectCount,
-		Timeout:            time.Duration(params.ConnectTimeout) * time.Minute,
-		//Logger:             os.Stdout,
-	}
-	configWithTLS := configWithoutTLS
-	configWithTLS.TLSConfig = &tls.Config{
-		InsecureSkipVerify: true,
-		//ClientSessionCache: tls.NewLRUClientSessionCache(32),
-	}
-	//configWithTLS.TLSMode = goftp.TLSExplicit
-
-	var client *goftp.Client
-	// Attempt to connect using FTPS
-	if client, err = goftp.DialConfig(configWithTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(params.Host, "ftps://"), params.Port)); err == nil {
-		if _, err = client.ReadDir("/"); err != nil {
-			_ = client.Close()
-		} else {
-			s = &storage.FTP{
-				Client: client,
-			}
-		}
-	}
-
-	// Attempt to create an FTP connection if FTPS isn't available
-	if s == nil {
-		client, err = goftp.DialConfig(configWithoutTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(params.Host, "ftp://"), params.Port))
-		if err != nil {
-			return
-		}
-		if _, err = client.ReadDir("/"); err != nil {
-			_ = client.Close()
-			return
-		}
-		s = &storage.FTP{
-			Client: client,
-		}
-	}
-
-	return
-}
-
-func nfsStorageInit(params *nfsParams) (*storage.NFS, error) {
-
-	mount, err := nfs.DialMount(params.Host)
-	if err != nil {
-		return nil, fmt.Errorf("unable to dial MOUNT service: %s", err)
-	}
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, err
-	}
-
-	auth := rpc.NewAuthUnix(hostname, params.UID, params.GID)
-
-	target, err := mount.Mount(params.Target, auth.Auth())
-	if err != nil {
-		return nil, fmt.Errorf("unable to mount volume: %s", err)
-	}
-
-	_, err = target.FSInfo()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get target status: %s", err)
-	}
-
-	return &storage.NFS{
-		Target: target,
-	}, nil
-}
-
-func webDavStorageInit(params *webDavParams) (*storage.WebDav, error) {
-
-	client, err := webdav.Init(webdav.Params{
-		URL:               params.URL,
-		Username:          params.Username,
-		Password:          params.Password,
-		OAuthToken:        params.OAuthToken,
-		ConnectionTimeout: params.ConnectionTimeout,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &storage.WebDav{
-		Client: client,
-	}, nil
 }

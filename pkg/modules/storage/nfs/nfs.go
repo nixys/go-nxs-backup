@@ -1,4 +1,4 @@
-package storage
+package nfs
 
 import (
 	"errors"
@@ -10,12 +10,10 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/vmware/go-nfs-client/nfs"
+	"github.com/vmware/go-nfs-client/nfs/rpc"
 
 	"nxs-backup/misc"
-)
-
-var (
-	ErrorFileNotFound = errors.New("file does not exist")
+	. "nxs-backup/modules/storage"
 )
 
 type NFS struct {
@@ -24,18 +22,51 @@ type NFS struct {
 	Retention
 }
 
+type Params struct {
+	Host   string
+	Target string
+	UID    uint32
+	GID    uint32
+	Port   int
+}
+
+func Init(params Params) (*NFS, error) {
+
+	mount, err := nfs.DialMount(params.Host)
+	if err != nil {
+		return nil, fmt.Errorf("unable to dial MOUNT service: %s", err)
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, err
+	}
+
+	auth := rpc.NewAuthUnix(hostname, params.UID, params.GID)
+
+	target, err := mount.Mount(params.Target, auth.Auth())
+	if err != nil {
+		return nil, fmt.Errorf("unable to mount volume: %s", err)
+	}
+
+	_, err = target.FSInfo()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get target status: %s", err)
+	}
+
+	return &NFS{
+		Target: target,
+	}, nil
+}
+
 func (s *NFS) IsLocal() int { return 0 }
 
-func (s *NFS) BackupPathSet(path string) {
+func (s *NFS) SetBackupPath(path string) {
 	s.BackupPath = path
 }
 
-func (s *NFS) RetentionSet(r Retention) {
+func (s *NFS) SetRetention(r Retention) {
 	s.Retention = r
-}
-
-func (s *NFS) ListFiles() (err error) {
-	return
 }
 
 func (s *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {

@@ -1,39 +1,93 @@
-package storage
+package smb
 
 import (
-	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path"
+	"strings"
 	"time"
 
+	"github.com/hirochachacha/go-smb2"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/webdav"
+	. "nxs-backup/modules/storage"
 )
 
-type WebDav struct {
-	Client     *webdav.Client
+type SMB struct {
+	session    *smb2.Session
+	share      *smb2.Share
 	BackupPath string
 	Retention
 }
 
-func (s *WebDav) IsLocal() int { return 0 }
-
-func (s *WebDav) BackupPathSet(path string) {
-	s.BackupPath = path
+type Params struct {
+	Host              string
+	Port              int
+	User              string
+	Password          string
+	Domain            string
+	Share             string
+	ConnectionTimeout time.Duration
 }
 
-func (s *WebDav) RetentionSet(r Retention) {
+func Init(params Params) (s *SMB, err error) {
+	conn, err := net.DialTimeout(
+		"tcp",
+		fmt.Sprintf(
+			"%s:%d",
+			params.Host,
+			params.Port,
+		),
+		params.ConnectionTimeout*time.Second,
+	)
+	if err != nil {
+		return s, err
+	}
+
+	s.session, err = (&smb2.Dialer{
+		Initiator: &smb2.NTLMInitiator{
+			User:     params.User,
+			Password: params.Password,
+			Domain:   params.Domain,
+		},
+	}).Dial(conn)
+	if err != nil {
+		return s, err
+	}
+
+	names, err := s.session.ListSharenames()
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		if strings.HasSuffix(name, "$") {
+			continue
+		}
+		if params.Share == name {
+			s.share, err = s.session.Mount(name)
+			if err != nil {
+				return s, err
+			}
+		}
+	}
+
+	return s, nil
+}
+
+func (s *SMB) IsLocal() int { return 0 }
+
+func (s *SMB) SetBackupPath(path string) {
+	s.BackupPath = strings.TrimPrefix(path, "/")
+}
+
+func (s *SMB) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *WebDav) ListFiles() (err error) {
-	return
-}
-
-func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
+func (s *SMB) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
@@ -49,29 +103,37 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 
 	// Make remote directories
 	remDir := path.Dir(dstPath)
-	err = s.mkDir(remDir)
+	err = s.share.MkdirAll(remDir, os.ModeDir)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
 		return err
 	}
 
-	err = s.Client.Upload(dstPath, srcFile)
+	dstFile, err := s.share.Create(dstPath)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to upload file: %s", err)
+		appCtx.Log().Errorf("Unable to create remote file: %s", err)
 		return err
 	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		return err
+	}
+
 	appCtx.Log().Infof("%s crated", dstPath)
 
 	for dst, src := range links {
 		remDir = path.Dir(dst)
-		err = s.mkDir(path.Dir(dst))
+		err = s.share.MkdirAll(remDir, os.ModeDir)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
 			return err
 		}
-		err = s.Client.Copy(src, dst)
+		err = s.share.Symlink(src, dst)
 		if err != nil {
-			appCtx.Log().Errorf("Unable to make copy: %s", err)
+			appCtx.Log().Errorf("Unable to make symlink: %s", err)
 			return err
 		}
 	}
@@ -79,14 +141,14 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 	return nil
 }
 
-func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+func (s *SMB) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
 
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
 		for _, ofsPart := range ofsPartsList {
 			bakDir := path.Join(s.BackupPath, ofsPart, period)
-			files, err := s.Client.Ls(bakDir)
+			files, err := s.share.ReadDir(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
 					appCtx.Log().Warnf("Error: '%s' %s", bakDir, err)
@@ -112,7 +174,7 @@ func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) 
 
 				retentionDate = retentionDate.Truncate(24 * time.Hour)
 				if curDate.After(retentionDate) {
-					err = s.Client.Rm(path.Join(bakDir, file.Name()))
+					err = s.share.Remove(path.Join(bakDir, file.Name()))
 					if err != nil {
 						appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 							file.Name(), bakDir, err)
@@ -125,54 +187,4 @@ func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) 
 		}
 	}
 	return
-}
-
-func (s *WebDav) mkDir(dstPath string) error {
-
-	dstPath = path.Clean(dstPath)
-	if dstPath == "." || dstPath == "/" {
-		return nil
-	}
-	fi, err := s.getInfo(dstPath)
-	if err == nil {
-		if fi.IsDir() {
-			return nil
-		}
-		return errors.New(fmt.Sprintf("%s is a file not a directory", dstPath))
-	} else if err != ErrorFileNotFound {
-		return fmt.Errorf("mkdir %q failed: %w", dstPath, err)
-	}
-
-	dir := path.Dir(dstPath)
-	err = s.mkDir(dir)
-	if err != nil {
-		return err
-	}
-	err = s.Client.Mkdir(dstPath)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
-
-	dir := path.Dir(dstPath)
-	base := path.Base(dstPath)
-
-	files, err := s.Client.Ls(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrorFileNotFound
-		}
-		return nil, err
-	}
-
-	for _, file := range files {
-		if file.Name() == base {
-			return file, nil
-		}
-	}
-	return nil, ErrorFileNotFound
 }

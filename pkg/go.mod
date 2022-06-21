@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/alexflint/go-arg v1.4.3
+	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/minio/minio-go/v7 v7.0.24
 	github.com/nixys/nxs-go-appctx/v2 v2.0.0
 	github.com/nixys/nxs-go-conf v1.0.1
@@ -16,6 +17,7 @@ require (
 require (
 	github.com/alexflint/go-scalar v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
+	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

@@ -1,20 +1,19 @@
-package storage
+package ftp
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/prasad83/goftp"
 
 	"nxs-backup/misc"
-)
-
-var (
-	ErrorObjectNotFound = errors.New("object not found")
+	. "nxs-backup/modules/storage"
 )
 
 type FTP struct {
@@ -23,18 +22,69 @@ type FTP struct {
 	Retention
 }
 
+type Params struct {
+	Host              string
+	User              string
+	Password          string
+	Port              int
+	ConnectCount      int
+	ConnectionTimeout time.Duration
+}
+
+func Init(params Params) (s *FTP, err error) {
+
+	configWithoutTLS := goftp.Config{
+		User:               params.User,
+		Password:           params.Password,
+		ConnectionsPerHost: params.ConnectCount,
+		Timeout:            params.ConnectionTimeout * time.Minute,
+		//Logger:             os.Stdout,
+	}
+	configWithTLS := configWithoutTLS
+	configWithTLS.TLSConfig = &tls.Config{
+		InsecureSkipVerify: true,
+		//ClientSessionCache: tls.NewLRUClientSessionCache(32),
+	}
+	//configWithTLS.TLSMode = goftp.TLSExplicit
+
+	var client *goftp.Client
+	// Attempt to connect using FTPS
+	if client, err = goftp.DialConfig(configWithTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(params.Host, "ftps://"), params.Port)); err == nil {
+		if _, err = client.ReadDir("/"); err != nil {
+			_ = client.Close()
+		} else {
+			s = &FTP{
+				Client: client,
+			}
+		}
+	}
+
+	// Attempt to create an FTP connection if FTPS isn't available
+	if s == nil {
+		client, err = goftp.DialConfig(configWithoutTLS, fmt.Sprintf("%s:%d", strings.TrimPrefix(params.Host, "ftp://"), params.Port))
+		if err != nil {
+			return
+		}
+		if _, err = client.ReadDir("/"); err != nil {
+			_ = client.Close()
+			return
+		}
+		s = &FTP{
+			Client: client,
+		}
+	}
+
+	return
+}
+
 func (f *FTP) IsLocal() int { return 0 }
 
-func (f *FTP) BackupPathSet(path string) {
+func (f *FTP) SetBackupPath(path string) {
 	f.BackupPath = path
 }
 
-func (f *FTP) RetentionSet(r Retention) {
+func (f *FTP) SetRetention(r Retention) {
 	f.Retention = r
-}
-
-func (f *FTP) ListFiles() (err error) {
-	return
 }
 
 func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
