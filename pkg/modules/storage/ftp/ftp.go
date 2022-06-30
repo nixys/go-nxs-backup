@@ -137,8 +137,9 @@ func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	return nil
 }
 
-func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
+	var errs []error
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
@@ -151,7 +152,7 @@ func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (er
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
-				return []error{err}
+				return err
 			}
 
 			for _, file := range files {
@@ -182,7 +183,12 @@ func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (er
 			}
 		}
 	}
-	return
+
+	if len(errs) > 0 {
+		return fmt.Errorf("some errors on file deletion")
+	}
+
+	return nil
 }
 
 func (f FTP) mkDir(dstPath string) error {

@@ -4,7 +4,10 @@ go 1.17
 
 require (
 	github.com/alexflint/go-arg v1.4.3
+	github.com/aliakseiz/go-mysqldump v1.0.1
+	github.com/go-sql-driver/mysql v1.6.0
 	github.com/hirochachacha/go-smb2 v1.1.0
+	github.com/jmoiron/sqlx v1.3.5
 	github.com/minio/minio-go/v7 v7.0.24
 	github.com/nixys/nxs-go-appctx/v2 v2.0.0
 	github.com/nixys/nxs-go-conf v1.0.1

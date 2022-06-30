@@ -1,6 +1,7 @@
 package local
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -89,8 +90,9 @@ func (l *Local) ListFiles() (err error) {
 	return
 }
 
-func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
+	var errs []error
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
@@ -103,7 +105,7 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in directory '%s' with next error: %s", backupDir, err)
-				return []error{err}
+				return err
 			}
 
 			for _, file := range files {
@@ -134,5 +136,10 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (
 			}
 		}
 	}
-	return
+
+	if len(errs) > 0 {
+		return fmt.Errorf("some errors on file deletion")
+	}
+
+	return nil
 }

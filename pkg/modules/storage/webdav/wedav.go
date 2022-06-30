@@ -106,8 +106,9 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 	return nil
 }
 
-func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
+	var errs []error
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
@@ -120,7 +121,7 @@ func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) 
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
-				return []error{err}
+				return err
 			}
 
 			for _, file := range files {
@@ -151,7 +152,12 @@ func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) 
 			}
 		}
 	}
-	return
+
+	if len(errs) > 0 {
+		return fmt.Errorf("some errors on file deletion")
+	}
+
+	return nil
 }
 
 func (s *WebDav) mkDir(dstPath string) error {

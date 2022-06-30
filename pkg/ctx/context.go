@@ -12,8 +12,11 @@ import (
 
 // Ctx defines application custom context
 type Ctx struct {
-	CmdParams interface{}
-	Jobs      []interfaces.Job
+	CmdParams    interface{}
+	Jobs         []interfaces.Job
+	FilesJobs    []interfaces.Job
+	DBsJobs      []interfaces.Job
+	ExternalJobs []interfaces.Job
 }
 
 // Init initiates application custom context
@@ -46,6 +49,16 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 			fmt.Printf("  %s\n", err)
 		}
 		os.Exit(1)
+	}
+	for _, job := range c.Jobs {
+		switch job.GetJobType() {
+		case "files":
+			c.FilesJobs = append(c.FilesJobs, job)
+		case "databases":
+			c.DBsJobs = append(c.DBsJobs, job)
+		case "external":
+			c.ExternalJobs = append(c.ExternalJobs, job)
+		}
 	}
 
 	return appctx.CfgData{

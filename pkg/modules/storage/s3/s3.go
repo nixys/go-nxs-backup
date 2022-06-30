@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -83,15 +84,16 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 	return nil
 }
 
-func (s *S3) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+func (s *S3) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
+	var errs []error
 	objCh := make(chan minio.ObjectInfo)
 	curDate := time.Now()
 
 	objMap, err := s.getObjectsPeriodicMap(ofsPartsList)
 	if err != nil {
-		errs = append(errs, err)
-		return
+		appCtx.Log().Errorf("Failed get objects: '%s'", err)
+		return err
 	}
 
 	// Send object that are needed to be removed to objCh
@@ -123,11 +125,15 @@ func (s *S3) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (err
 	}()
 
 	for rErr := range s.Client.RemoveObjects(context.Background(), s.BucketName, objCh, minio.RemoveObjectsOptions{GovernanceBypass: true}) {
-		appCtx.Log().Errorf("Error detected during deletion: '%s'", rErr)
-		errs = append(errs, err)
+		appCtx.Log().Errorf("Error detected during object deletion: '%s'", rErr)
+		errs = append(errs, rErr.Err)
 	}
 
-	return
+	if len(errs) > 0 {
+		return fmt.Errorf("some errors on file deletion")
+	}
+
+	return nil
 }
 
 func (s *S3) getObjectsPeriodicMap(ofsPartsList []string) (objs map[string][]minio.ObjectInfo, err error) {

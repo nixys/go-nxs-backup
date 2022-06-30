@@ -16,34 +16,39 @@ func Start(appCtx *appctx.AppContext) error {
 
 	cc := appCtx.CustomCtx().(*ctx.Ctx)
 
-	for _, job := range cc.Jobs {
-
-		switch cc.CmdParams.(*args.StartCmd).JobName {
-		case "all":
-			appCtx.Log().Info("Starting backup all jobs.")
+	switch cc.CmdParams.(*args.StartCmd).JobName {
+	case "all":
+		appCtx.Log().Info("Starting backup all jobs.")
+		for _, job := range cc.Jobs {
 			errList := job.DoBackup(appCtx)
 			if len(errList) > 0 {
 				for _, err := range errList {
 					errs = append(errs, err.Error())
 				}
 			}
-		case "databases":
-			appCtx.Log().Info("Starting backup databases jobs.")
-		case "files":
-			appCtx.Log().Info("Starting backup files jobs.")
-			errList := job.DoBackup(appCtx)
-			if len(errList) > 0 {
-				for _, err := range errList {
-					errs = append(errs, err.Error())
+		}
+	case "databases":
+		appCtx.Log().Info("Starting backup databases jobs.")
+	case "files":
+		appCtx.Log().Info("Starting backup files jobs.")
+		for _, job := range cc.Jobs {
+			if job.GetJobType() == "files" {
+				errList := job.DoBackup(appCtx)
+				if len(errList) > 0 {
+					for _, err := range errList {
+						errs = append(errs, err.Error())
+					}
 				}
 			}
-		case "external":
-			if job.JobType() == "external" {
+		}
+	case "external":
+		for _, job := range cc.Jobs {
+			if job.GetJobType() == "external" {
 				appCtx.Log().Info("Starting backup external jobs.")
 			}
-		default:
-			appCtx.Log().Info("Starting backup 'some' jobs.")
 		}
+	default:
+		appCtx.Log().Info("Starting backup 'some' jobs.")
 	}
 
 	if len(errs) > 0 {

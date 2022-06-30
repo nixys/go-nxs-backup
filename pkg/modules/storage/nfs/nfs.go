@@ -106,8 +106,9 @@ func (s *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	return nil
 }
 
-func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (errs []error) {
+func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
+	var errs []error
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
@@ -120,7 +121,7 @@ func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (er
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
-				return []error{err}
+				return err
 			}
 
 			for _, file := range files {
@@ -151,7 +152,12 @@ func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) (er
 			}
 		}
 	}
-	return
+
+	if len(errs) > 0 {
+		return fmt.Errorf("some errors on file deletion")
+	}
+
+	return nil
 }
 
 func (s *NFS) mkDir(dstPath string) error {
