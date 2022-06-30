@@ -43,7 +43,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			if stOpts.Retention.Days < 0 || stOpts.Retention.Weeks < 0 || stOpts.Retention.Months < 0 {
 				errs = append(errs, fmt.Errorf("retention period can't be negative"))
 			}
-			if misc.NeedToMakeBackup(stOpts.Retention.Days, stOpts.Retention.Weeks, stOpts.Retention.Months) {
+			if misc.GetNeedToMakeBackup(stOpts.Retention.Days, stOpts.Retention.Weeks, stOpts.Retention.Months) {
 				needToMakeBackup = true
 			}
 
@@ -61,15 +61,15 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 		switch j.JobType {
 		case "desc_files":
 			var sources []desc_files.SourceParams
-			for _, s := range j.Sources {
+			for _, src := range j.Sources {
 				sources = append(sources, desc_files.SourceParams{
-					Targets:  s.Targets,
-					Excludes: s.Excludes,
-					Gzip:     s.Gzip,
+					Targets:  src.Targets,
+					Excludes: src.Excludes,
+					Gzip:     src.Gzip,
 				})
 			}
 
-			job, err := desc_files.Init(desc_files.Params{
+			job, err := desc_files.Init(desc_files.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,
@@ -96,14 +96,16 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				}
 
 				sources = append(sources, mysql.SourceParams{
-					Gzip:          src.Gzip,
-					ExcludedDBs:   src.ExcludeDbs,
-					TargetDBs:     getMysqlTargetsParams(src),
 					ConnectParams: connect,
+					TargetDBs:     src.Targets,
+					Excludes:      src.Excludes,
+					Gzip:          src.Gzip,
+					IsSlave:       src.IsSlave,
+					LockTables:    src.LockTables,
 				})
 			}
 
-			job, err := mysql.Init(mysql.Params{
+			job, err := mysql.Init(mysql.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,
@@ -124,23 +126,6 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 		}
 	}
 
-	return
-}
-
-func getMysqlTargetsParams(source cfgSource) (targets map[string]*mysql.TargetDBParams) {
-	targets = make(map[string]*mysql.TargetDBParams)
-
-	for _, db := range source.Targets {
-		targets[db] = &mysql.TargetDBParams{
-			LockTables: false,
-		}
-	}
-	for _, excl := range source.Excludes {
-		ex := strings.Split(excl, ".")
-		if len(ex) == 2 {
-			targets[ex[0]].IgnoreTables = append(targets[ex[0]].IgnoreTables, ex[1])
-		}
-	}
 	return
 }
 

@@ -2,12 +2,10 @@ package desc_files
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -17,26 +15,24 @@ import (
 	"nxs-backup/misc"
 )
 
-type Job struct {
-	Name                 string
-	TmpDir               string
-	NeedToMakeBackup     bool
-	SafetyBackup         bool
-	DeferredCopyingLevel int
-	Storages             interfaces.Storages
-	Sources              []Source
-	DumpedObjects        map[string]string
-	OfsPartsList         []string
+type descFileJob struct {
+	name                 string
+	tmpDir               string
+	needToMakeBackup     bool
+	safetyBackup         bool
+	deferredCopyingLevel int
+	storages             interfaces.Storages
+	sources              []source
+	dumpedObjects        map[string]string
+	ofsPartsList         []string
 }
 
-type Source struct {
-	Targets []TargetOfs
-	Gzip    bool
+type source struct {
+	targets []map[string]string
+	gzip    bool
 }
 
-type TargetOfs map[string]string
-
-type Params struct {
+type JobParams struct {
 	Name                 string
 	TmpDir               string
 	NeedToMakeBackup     bool
@@ -52,24 +48,21 @@ type SourceParams struct {
 	Excludes []string
 }
 
-func Init(p Params) (*Job, error) {
+func Init(p JobParams) (*descFileJob, error) {
 
-	job := &Job{
-		Name:                 p.Name,
-		TmpDir:               p.TmpDir,
-		NeedToMakeBackup:     p.NeedToMakeBackup,
-		SafetyBackup:         p.SafetyBackup,
-		DeferredCopyingLevel: p.DeferredCopyingLevel,
-		Storages:             p.Storages,
+	job := &descFileJob{
+		name:                 p.Name,
+		tmpDir:               p.TmpDir,
+		needToMakeBackup:     p.NeedToMakeBackup,
+		safetyBackup:         p.SafetyBackup,
+		deferredCopyingLevel: p.DeferredCopyingLevel,
+		storages:             p.Storages,
+		dumpedObjects:        make(map[string]string),
 	}
 
-	var (
-		sources      []Source
-		ofsPartsList []string
-	)
 	for _, s := range p.Sources {
 
-		var targets []TargetOfs
+		var targets []map[string]string
 		for _, targetPattern := range s.Targets {
 
 			for strings.HasSuffix(targetPattern, "/") {
@@ -100,134 +93,108 @@ func Init(p Params) (*Job, error) {
 				if !excluded {
 					ofsPart := misc.GetOfsPart(targetPattern, ofs)
 					targetOfsMap[ofsPart] = ofs
-					ofsPartsList = append(ofsPartsList, ofsPart)
+					job.ofsPartsList = append(job.ofsPartsList, ofsPart)
 				}
 			}
 
 			targets = append(targets, targetOfsMap)
 		}
 
-		sources = append(sources, Source{
-			Targets: targets,
-			Gzip:    s.Gzip,
+		job.sources = append(job.sources, source{
+			targets: targets,
+			gzip:    s.Gzip,
 		})
 	}
-
-	job.Sources = sources
-	job.OfsPartsList = ofsPartsList
 
 	return job, nil
 }
 
-func (j *Job) GetJobName() string {
-	return j.Name
+func (j *descFileJob) GetName() string {
+	return j.name
 }
 
-func (j *Job) GetJobType() string {
+func (j *descFileJob) GetTempDir() string {
+	return j.tmpDir
+}
+
+func (j *descFileJob) GetType() string {
 	return "files"
 }
 
-func (j *Job) DoBackup(appCtx *appctx.AppContext) (errs []error) {
+func (j *descFileJob) IsBackupSafety() bool {
+	return j.safetyBackup
+}
 
-	if j.SafetyBackup {
-		defer func() {
-			err := j.Storages.CleanupOldBackups(appCtx, j.OfsPartsList)
-			if err != nil {
-				errs = append(errs, err...)
-			}
-		}()
-	} else {
-		err := j.Storages.CleanupOldBackups(appCtx, j.OfsPartsList)
-		if err != nil {
-			errs = append(errs, err...)
-			return
-		}
-	}
+func (j *descFileJob) CleanupOldBackups(appCtx *appctx.AppContext) []error {
+	return j.storages.CleanupOldBackups(appCtx, j.ofsPartsList)
+}
 
-	if !j.NeedToMakeBackup {
-		appCtx.Log().Infof("According to the backup plan today new backups are not created for job %s", j.Name)
-		return
-	}
+func (j *descFileJob) IsNeedToMakeBackup() bool {
+	return j.needToMakeBackup
+}
 
-	tmpDirPath := path.Join(j.TmpDir, fmt.Sprintf("%s_%s", j.GetJobType(), misc.GetDateTimeNow("")))
-	err := os.MkdirAll(tmpDirPath, os.ModePerm)
-	if err != nil {
-		appCtx.Log().Error(err)
-		return []error{err}
-	}
+func (j *descFileJob) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	j.DumpedObjects = make(map[string]string)
+	for _, src := range j.sources {
 
-	for _, source := range j.Sources {
-
-		for _, target := range source.Targets {
+		for _, target := range src.targets {
 
 			for ofsPart, ofs := range target {
 
-				tmpBackupFullPath := misc.GetBackupFullPath(tmpDirPath, ofsPart, "tar", "", source.Gzip)
-				err = createBackup(tmpBackupFullPath, ofs, source.Gzip)
+				tmpBackupFullPath := misc.GetBackupFullPath(tmpDir, ofsPart, "tar", "", src.gzip)
+				err := createTmpBackup(appCtx, tmpBackupFullPath, ofs, src.gzip)
 				if err != nil {
+					appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFullPath, j.name)
 					errs = append(errs, err)
 					continue
 				} else {
-					appCtx.Log().Infof("created temp backups %s by job %s", tmpBackupFullPath, j.Name)
+					appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFullPath, j.name)
 				}
 
-				j.DumpedObjects[ofsPart] = tmpBackupFullPath
-
-				if j.DeferredCopyingLevel <= 0 {
-					errLst := j.Storages.Delivery(appCtx, j.DumpedObjects)
-					errs = append(errs, errLst...)
-					j.DumpedObjects = make(map[string]string)
-				}
+				j.dumpedObjects[ofsPart] = tmpBackupFullPath
 			}
-			if j.DeferredCopyingLevel == 1 {
-				errLst := j.Storages.Delivery(appCtx, j.DumpedObjects)
+
+			if j.deferredCopyingLevel <= 0 {
+				errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
 				errs = append(errs, errLst...)
-				j.DumpedObjects = make(map[string]string)
+				j.dumpedObjects = make(map[string]string)
 			}
 		}
-		if j.DeferredCopyingLevel >= 2 {
-			errLst := j.Storages.Delivery(appCtx, j.DumpedObjects)
+
+		if j.deferredCopyingLevel == 1 {
+			errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
 			errs = append(errs, errLst...)
-			j.DumpedObjects = make(map[string]string)
+			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
-	// cleanup tmp dir
-	files, _ := ioutil.ReadDir(tmpDirPath)
-	if len(files) == 0 {
-		err = os.Remove(tmpDirPath)
-		if err != nil {
-			errs = append(errs, err)
-		}
+	if j.deferredCopyingLevel >= 2 {
+		errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+		errs = append(errs, errLst...)
 	}
 
 	return
 }
 
-func createBackup(tmpBackupPath, ofs string, gZip bool) (err error) {
-	backupFile, err := os.Create(tmpBackupPath)
-	if err != nil {
-		return
-	}
-
-	var backupWriter io.WriteCloser
-	if gZip {
-		backupWriter = gzip.NewWriter(backupFile)
-	} else {
-		backupWriter = backupFile
-	}
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, gZip bool) (err error) {
+	backupWriter, err := misc.GetBackupWriter(tmpBackupPath, gZip)
 	defer backupWriter.Close()
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create tmp file: %s", err)
+		return err
+	}
 
 	tarWriter := tar.NewWriter(backupWriter)
 	defer tarWriter.Close()
 
-	err = writeDirectory(ofs, tarWriter, filepath.Dir(ofs))
+	err = tarDirectory(ofs, tarWriter, filepath.Dir(ofs))
+	if err != nil {
+		appCtx.Log().Errorf("Unable to make tar: %s", err)
+	}
 	return
 }
 
-func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
+func tarDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
 
 	files, err := ioutil.ReadDir(directory)
 	if err != nil {
@@ -248,7 +215,7 @@ func writeDirectory(directory string, tarWriter *tar.Writer, subPath string) err
 	for _, file := range files {
 		currentPath := filepath.Join(directory, file.Name())
 		if file.IsDir() {
-			err := writeDirectory(currentPath, tarWriter, subPath)
+			err := tarDirectory(currentPath, tarWriter, subPath)
 			if err != nil {
 				return err
 			}

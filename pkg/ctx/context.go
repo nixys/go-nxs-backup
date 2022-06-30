@@ -51,7 +51,7 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 		os.Exit(1)
 	}
 	for _, job := range c.Jobs {
-		switch job.GetJobType() {
+		switch job.GetType() {
 		case "files":
 			c.FilesJobs = append(c.FilesJobs, job)
 		case "databases":

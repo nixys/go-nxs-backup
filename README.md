@@ -93,8 +93,8 @@ jobs: !include [conf.d/*.conf]
   * *external*
 * `tmp_dir`: a local path to the temporary directory for backups.
 * `dump_cmd`(**only for *external* type**): full command to run an external script.
-* `safety_backup`(logical)(optional): Delete outdated backups after creating a new one. By default, "false". **IMPORTANT** Using of this option requires more disk space. Make sure there is enough free space on the end device.
-* `deferred_copying_level` (optional)(int): Determines the level of deferred copying. The minimum value is 0 (by default), copying occurs immediately after the temporary backup is created. The maximum value is 3, copying occurs after creation of all temporary backups defined in the task. **IMPORTANT** Using of this option requires more disk space for more level. Make sure there is enough free space on the device where temporary backups stores.
+* `safety_backup`(logical)(optional): Delete outdated backups after creating a new one. By default, "false". **IMPORTANT** Using of this option requires more disk space. Perform sure there is enough free space on the end device.
+* `deferred_copying_level` (optional)(int): Determines the level of deferred copying. The minimum value is 0 (by default), copying occurs immediately after the temporary backup is created. The maximum value is 3, copying occurs after creation of all temporary backups defined in the task. **IMPORTANT** Using of this option requires more disk space for more level. Perform sure there is enough free space on the device where temporary backups stores.
 * `inc_months_to_store` (optional)(int, **only for *inc_files* type**): Determines how many months of incremental copies will be stored relative to the current month. Can take values from 0 to 12, the default is 12.
 * `sources` (objects array): Specify one target or array of targets for backup:
   * `connect` (object, **Only for *databases* types**). It is necessary to fill a minimum set of keys to allow database connection:
@@ -255,7 +255,7 @@ For correct work of the software, you must install [s3fs](https://github.com/s3f
     echo "deb [arch=amd64] http://packages.nixys.ru/debian/ stretch main" > /etc/apt/sources.list.d/packages.nixys.ru.list
     ```
 
-3.  Make an update:
+3.  Perform an update:
 
     ```
     apt-get update

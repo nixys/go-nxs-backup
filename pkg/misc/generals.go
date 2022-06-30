@@ -1,7 +1,10 @@
 package misc
 
 import (
+	"compress/gzip"
 	"fmt"
+	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -10,8 +13,8 @@ import (
 )
 
 const (
-	MonthlyBackupDay = "1"
-	WeeklyBackupDay  = "7"
+	monthlyBackupDay = "1"
+	weeklyBackupDay  = "7"
 )
 
 var AllowedJobTypes = []string{
@@ -77,11 +80,11 @@ func GetDateTimeNow(unit string) (res string) {
 	return res
 }
 
-func NeedToMakeBackup(day, week, month int) bool {
+func GetNeedToMakeBackup(day, week, month int) bool {
 
 	if day > 0 ||
-		(week > 0 && GetDateTimeNow("dow") == WeeklyBackupDay) ||
-		(month > 0 && GetDateTimeNow("dom") == MonthlyBackupDay) {
+		(week > 0 && GetDateTimeNow("dow") == weeklyBackupDay) ||
+		(month > 0 && GetDateTimeNow("dom") == monthlyBackupDay) {
 		return true
 	}
 
@@ -121,11 +124,11 @@ func GetDstAndLinks(bakFile, ofs, bakPath string, days, weeks, months int) (dst 
 	var rel string
 	links = make(map[string]string)
 
-	if GetDateTimeNow("dom") == MonthlyBackupDay && months > 0 {
+	if GetDateTimeNow("dom") == monthlyBackupDay && months > 0 {
 		dstPath := path.Join(bakPath, ofs, "monthly")
 		dst = path.Join(dstPath, bakFile)
 	}
-	if GetDateTimeNow("dow") == WeeklyBackupDay && weeks > 0 {
+	if GetDateTimeNow("dow") == weeklyBackupDay && weeks > 0 {
 		dstPath := path.Join(bakPath, ofs, "weekly")
 		if dst != "" {
 			rel, err = filepath.Rel(dstPath, dst)
@@ -157,10 +160,10 @@ func GetDstList(bakFile, ofs, bakPath string, days, weeks, months int) (dst []st
 
 	basePath := strings.TrimPrefix(path.Join(bakPath, ofs), "/")
 
-	if GetDateTimeNow("dom") == MonthlyBackupDay && months > 0 {
+	if GetDateTimeNow("dom") == monthlyBackupDay && months > 0 {
 		dst = append(dst, path.Join(basePath, "monthly", bakFile))
 	}
-	if GetDateTimeNow("dow") == WeeklyBackupDay && weeks > 0 {
+	if GetDateTimeNow("dow") == weeklyBackupDay && weeks > 0 {
 		dst = append(dst, path.Join(basePath, "weekly", bakFile))
 	}
 	if days > 0 {
@@ -168,4 +171,20 @@ func GetDstList(bakFile, ofs, bakPath string, days, weeks, months int) (dst []st
 	}
 
 	return
+}
+
+func GetBackupWriter(filePath string, gZip bool) (io.WriteCloser, error) {
+	backupFile, err := os.Create(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var writer io.WriteCloser
+	if gZip {
+		writer = gzip.NewWriter(backupFile)
+	} else {
+		writer = backupFile
+	}
+
+	return writer, nil
 }
