@@ -154,7 +154,6 @@ func (s *SFTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) er
 			files, err := s.Client.ReadDir(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					appCtx.Log().Warnf("Error: %s", err)
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
@@ -195,4 +194,8 @@ func (s *SFTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) er
 	}
 
 	return nil
+}
+
+func (s *SFTP) Close() error {
+	return s.Client.Close()
 }

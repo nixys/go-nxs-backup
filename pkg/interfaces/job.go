@@ -10,4 +10,14 @@ type Job interface {
 	IsNeedToMakeBackup() bool
 	DoBackup(ctx *appctx.AppContext, tmpDir string) []error
 	CleanupOldBackups(ctx *appctx.AppContext) []error
+	Close() error
+}
+
+type Jobs []Job
+
+func (j Jobs) Close() error {
+	for _, job := range j {
+		_ = job.Close()
+	}
+	return nil
 }

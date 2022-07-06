@@ -152,7 +152,6 @@ func (s *SMB) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 			files, err := s.share.ReadDir(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					appCtx.Log().Warnf("Error: '%s' %s", bakDir, err)
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
@@ -193,4 +192,9 @@ func (s *SMB) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 	}
 
 	return nil
+}
+
+func (s *SMB) Close() error {
+	_ = s.share.Umount()
+	return s.session.Logoff()
 }

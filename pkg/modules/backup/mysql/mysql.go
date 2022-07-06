@@ -1,14 +1,20 @@
 package mysql
 
 import (
-	"github.com/aliakseiz/go-mysqldump"
+	"bytes"
+	"fmt"
+	"os"
+	"os/exec"
+	"regexp"
+
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"strings"
+	"gopkg.in/ini.v1"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/backend/exec_cmd"
 )
 
 type mysqlJob struct {
@@ -24,12 +30,17 @@ type mysqlJob struct {
 }
 
 type source struct {
+	targets   []target
+	isSlave   bool
+	gzip      bool
+	extraKeys []string
+	connect   *sqlx.DB
+	authFile  string
+}
+
+type target struct {
 	dbName       string
-	connect      *sqlx.DB
 	ignoreTables []string
-	lockTables   bool
-	gzip         bool
-	isSlave      bool
 }
 
 type JobParams struct {
@@ -44,22 +55,29 @@ type JobParams struct {
 
 type SourceParams struct {
 	ConnectParams
-	TargetDBs  []string
-	Excludes   []string
-	LockTables bool
-	Gzip       bool
-	IsSlave    bool
+	TargetDBs []string
+	Excludes  []string
+	ExtraKeys []string
+	Gzip      bool
+	IsSlave   bool
 }
 
 type ConnectParams struct {
-	User   string // Username
-	Passwd string // Password (requires User)
-	Net    string // Network type
-	Addr   string // Network address (requires Net)
-	DBName string // Database name
+	AuthFile string // Path to auth file
+	User     string // Username
+	Passwd   string // Password (requires User)
+	Host     string // Network host
+	Port     string // Network port
+	Socket   string // Socket path
 }
 
 func Init(params JobParams) (*mysqlJob, error) {
+
+	// check if mysqldump available
+	_, err := exec_cmd.Exec("mysqldumpl", "--version")
+	if err != nil {
+		return nil, fmt.Errorf("failed to check mysqldump version. Please check that `mysqldump` installed. Error: %s", err)
+	}
 
 	job := &mysqlJob{
 		name:                 params.Name,
@@ -73,63 +91,48 @@ func Init(params JobParams) (*mysqlJob, error) {
 
 	for _, src := range params.Sources {
 
-		cfg := mysql.NewConfig()
-		cfg.User = src.User
-		cfg.Passwd = src.Passwd
-		cfg.Net = src.Net
-		cfg.Addr = src.Addr
-
-		baseConn, err := sqlx.Connect("mysql", cfg.FormatDSN())
-		defer func() {
-			_ = baseConn.Close()
-		}()
+		dbConn, authFile, err := getMysqlConnect(src.ConnectParams)
 		if err != nil {
 			return nil, err
 		}
 
 		// fetch all databases
 		var databases []string
-		err = baseConn.Select(&databases, "show databases")
+		err = dbConn.Select(&databases, "show databases")
 		if err != nil {
 			return nil, err
-		}
-
-		var targetDBsNames []string
-		for _, tdbName := range src.TargetDBs {
-			targetDBsNames = append(targetDBsNames, tdbName)
 		}
 
 		for _, db := range databases {
 			if misc.Contains(src.Excludes, db) {
 				continue
 			}
-			if misc.Contains(targetDBsNames, "all") || misc.Contains(targetDBsNames, db) {
-				scfg := cfg.Clone()
-				scfg.DBName = db
-				conn, err := sqlx.Connect("mysql", scfg.FormatDSN())
-				if err != nil {
-					return nil, err
-				}
+			var targets []target
+			if misc.Contains(src.TargetDBs, "all") || misc.Contains(src.TargetDBs, db) {
 
 				job.databasesList = append(job.databasesList, db)
 
 				var ignoreTables []string
+				pattern := `^` + db + `\..*$`
 				for _, excl := range src.Excludes {
-					ex := strings.Split(excl, ".")
-					if len(ex) == 2 {
-						ignoreTables = append(ignoreTables, ex[1])
+					if matched, _ := regexp.MatchString(pattern, excl); matched {
+						ignoreTables = append(ignoreTables, "--ignore-table="+excl)
 					}
 				}
-
-				job.sources = append(job.sources, source{
-					connect:      conn,
+				targets = append(targets, target{
 					dbName:       db,
 					ignoreTables: ignoreTables,
-					lockTables:   src.LockTables,
-					gzip:         src.Gzip,
-					isSlave:      src.IsSlave,
 				})
+
 			}
+			job.sources = append(job.sources, source{
+				targets:   targets,
+				connect:   dbConn,
+				authFile:  authFile,
+				extraKeys: src.ExtraKeys,
+				gzip:      src.Gzip,
+				isSlave:   src.IsSlave,
+			})
 		}
 	}
 
@@ -164,27 +167,34 @@ func (j *mysqlJob) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []er
 
 	for _, src := range j.sources {
 
-		tmpBackupFullPath := misc.GetBackupFullPath(tmpDir, src.dbName, "sql", "", src.gzip)
+		for _, target := range src.targets {
 
-		err := createTmpBackup(appCtx, tmpBackupFullPath, src)
-		if err != nil {
-			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFullPath, j.name)
-			errs = append(errs, err...)
-			continue
-		} else {
-			appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFullPath, j.name)
+			tmpBackupFullPath := misc.GetBackupFullPath(tmpDir, target.dbName, "sql", "", src.gzip)
+
+			err := createTmpBackup(appCtx, tmpBackupFullPath, src, target)
+			if err != nil {
+				appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFullPath, j.name)
+				errs = append(errs, err...)
+				continue
+			} else {
+				appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFullPath, j.name)
+			}
+
+			j.dumpedObjects[target.dbName] = tmpBackupFullPath
+
+			if j.deferredCopyingLevel <= 0 {
+				errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+				errs = append(errs, errLst...)
+				j.dumpedObjects = make(map[string]string)
+			}
 		}
-
-		j.dumpedObjects[src.dbName] = tmpBackupFullPath
-
-		if j.deferredCopyingLevel <= 0 {
+		if j.deferredCopyingLevel == 1 {
 			errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
 			errs = append(errs, errLst...)
-			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
-	if j.deferredCopyingLevel >= 1 {
+	if j.deferredCopyingLevel >= 2 {
 		errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
 		errs = append(errs, errLst...)
 	}
@@ -192,46 +202,148 @@ func (j *mysqlJob) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []er
 	return
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, src source) (errs []error) {
+func (j *mysqlJob) Close() error {
+	for _, src := range j.sources {
+		_ = os.Remove(src.authFile)
+		_ = src.connect.Close()
+	}
+	return nil
+}
+
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, src source, target target) (errs []error) {
+
 	backupWriter, err := misc.GetBackupWriter(tmpBackupPath, src.gzip)
+	defer backupWriter.Close()
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create tmp file: %s", err)
+		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
 		return append(errs, err)
 	}
 
-	target := &mysqldump.Data{
-		Connection:   src.connect.DB,
-		DBName:       src.dbName,
-		IgnoreTables: src.ignoreTables,
-		LockTables:   src.lockTables,
-		Out:          backupWriter,
-	}
-	defer func() {
-		_ = target.Close()
-	}()
-
 	if src.isSlave {
-		_, err = src.connect.Exec("STOP SLAVE")
+		_, err := src.connect.Exec("STOP SLAVE")
 		if err != nil {
-			appCtx.Log().Errorf("Unable to stop slave: %s", err)
+			appCtx.Log().Errorf("Unable to stop slave. Error: %s", err)
 			errs = append(errs, err)
 			return
 		}
-		appCtx.Log().Infof("Slave stopped: %s", err)
+		appCtx.Log().Infof("Slave stopped")
 		defer func() {
 			_, err = src.connect.Exec("START SLAVE")
 			if err != nil {
-				appCtx.Log().Errorf("Unable to start slave: %s", err)
+				appCtx.Log().Errorf("Unable to start slave. Error: %s", err)
 				errs = append(errs, err)
+			} else {
+				appCtx.Log().Infof("Slave started")
 			}
 		}()
 	}
 
-	err = target.Dump()
-	if err != nil {
-		appCtx.Log().Errorf("Unable to dump db: %s", err)
+	var args []string
+	// define command args with auth options
+	args = append(args, "--defaults-extra-file="+src.authFile)
+	// add extra dump cmd options
+	if len(src.extraKeys) > 0 {
+		args = append(args, src.extraKeys...)
+	}
+	// add db name
+	args = append(args, target.dbName)
+
+	var stderr bytes.Buffer
+	cmd := exec.Command("mysqldump", args...)
+	cmd.Stdout = backupWriter
+	cmd.Stderr = &stderr
+
+	if err = cmd.Start(); err != nil {
+		appCtx.Log().Errorf("Unable to start mysqldump. Error: %s", err)
 		errs = append(errs, err)
+		return
+	}
+	appCtx.Log().Infof("Starting a `%s` dump", target.dbName)
+
+	if err = cmd.Wait(); err != nil {
+		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, err)
+		errs = append(errs, err)
+		return
 	}
 
+	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
+
 	return
+}
+
+func getMysqlConnect(conn ConnectParams) (*sqlx.DB, string, error) {
+
+	dumpAuthCfg := ini.Empty()
+	_ = dumpAuthCfg.NewSections("mysqldump")
+
+	if conn.AuthFile != "" {
+		authCfg, err := ini.LoadSources(ini.LoadOptions{AllowBooleanKeys: true}, conn.AuthFile)
+		if err != nil {
+			return nil, "", err
+		}
+
+		for _, sName := range []string{"mysql", "client", "mysqldump", ""} {
+			s, err := authCfg.GetSection(sName)
+			if err != nil {
+				continue
+			}
+			if user := s.Key("user").MustString(""); user != "" {
+				conn.User = user
+				_, _ = dumpAuthCfg.Section("mysqldump").NewKey("user", user)
+			}
+			if pass := s.Key("password").MustString(""); pass != "" {
+				conn.Passwd = pass
+				_, _ = dumpAuthCfg.Section("mysqldump").NewKey("password", pass)
+			}
+			if socket := s.Key("socket").MustString(""); socket != "" {
+				conn.Socket = socket
+				_, _ = dumpAuthCfg.Section("mysqldump").NewKey("socket", socket)
+			}
+			if host := s.Key("host").MustString(""); host != "" {
+				conn.Host = host
+				_, _ = dumpAuthCfg.Section("mysqldump").NewKey("host", host)
+			}
+			if port := s.Key("port").MustString(""); port != "" {
+				conn.Port = port
+				_, _ = dumpAuthCfg.Section("mysqldump").NewKey("port", port)
+			}
+			break
+		}
+	} else {
+		if conn.User != "" {
+			_, _ = dumpAuthCfg.Section("mysqldump").NewKey("user", conn.User)
+		}
+		if conn.Passwd != "" {
+			_, _ = dumpAuthCfg.Section("mysqldump").NewKey("password", conn.Passwd)
+		}
+		if conn.Socket != "" {
+			_, _ = dumpAuthCfg.Section("mysqldump").NewKey("socket", conn.Socket)
+		}
+		if conn.Host != "" {
+			_, _ = dumpAuthCfg.Section("mysqldump").NewKey("host", conn.Host)
+		}
+		if conn.Port != "" {
+			_, _ = dumpAuthCfg.Section("mysqldump").NewKey("port", conn.Port)
+		}
+	}
+
+	authFile := misc.GetBackupFullPath("/tmp", "my_cnf", "ini", misc.RandString(5), false)
+	err := dumpAuthCfg.SaveTo(authFile)
+	if err != nil {
+		return nil, authFile, err
+	}
+
+	cfg := mysql.NewConfig()
+	cfg.User = conn.User
+	cfg.Passwd = conn.Passwd
+	if conn.Socket != "" {
+		cfg.Net = "unix"
+		cfg.Addr = conn.Socket
+	} else {
+		cfg.Net = "tcp"
+		cfg.Addr = fmt.Sprintf("%s:%s", conn.Host, conn.Port)
+	}
+	db, err := sqlx.Connect("mysql", cfg.FormatDSN())
+
+	return db, authFile, err
 }

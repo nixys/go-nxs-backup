@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -187,4 +188,20 @@ func GetBackupWriter(filePath string, gZip bool) (io.WriteCloser, error) {
 	}
 
 	return writer, nil
+}
+
+// RandString generates random string
+func RandString(strLen int64) string {
+
+	var chars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+	rand.Seed(time.Now().UnixNano())
+
+	b := make([]rune, strLen)
+
+	for i := range b {
+		b[i] = chars[rand.Intn(len(chars))]
+	}
+
+	return string(b)
 }

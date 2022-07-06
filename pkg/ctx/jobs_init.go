@@ -2,7 +2,6 @@ package ctx
 
 import (
 	"fmt"
-	"gopkg.in/ini.v1"
 	"sort"
 	"strings"
 
@@ -89,19 +88,25 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			var sources []mysql.SourceParams
 
 			for _, src := range j.Sources {
-				connect, err := getMysqlConnectParams(src.Connect)
-				if err != nil {
-					errs = append(errs, err)
-					continue
+				var extraKeys []string
+				if len(src.ExtraKeys) > 0 {
+					extraKeys = strings.Split(src.ExtraKeys, " ")
 				}
 
 				sources = append(sources, mysql.SourceParams{
-					ConnectParams: connect,
-					TargetDBs:     src.Targets,
-					Excludes:      src.Excludes,
-					Gzip:          src.Gzip,
-					IsSlave:       src.IsSlave,
-					LockTables:    src.LockTables,
+					ConnectParams: mysql.ConnectParams{
+						AuthFile: src.Connect.AuthFile,
+						User:     src.Connect.DBUser,
+						Passwd:   src.Connect.DBPassword,
+						Host:     src.Connect.DBHost,
+						Port:     src.Connect.DBPort,
+						Socket:   src.Connect.Socket,
+					},
+					TargetDBs: src.Targets,
+					Excludes:  src.Excludes,
+					Gzip:      src.Gzip,
+					IsSlave:   src.IsSlave,
+					ExtraKeys: extraKeys,
 				})
 			}
 
@@ -127,52 +132,4 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 	}
 
 	return
-}
-
-func getMysqlConnectParams(conn cfgConnect) (mysql.ConnectParams, error) {
-
-	if conn.AuthFile != "" {
-		authCfg, err := ini.LoadSources(ini.LoadOptions{AllowBooleanKeys: true}, conn.AuthFile)
-		if err != nil {
-			return mysql.ConnectParams{}, err
-		}
-
-		for _, sName := range []string{"mysql", "client", "mysqldump", ""} {
-			s, err := authCfg.GetSection(sName)
-			if err != nil {
-				continue
-			}
-			if user := s.Key("user").MustString(""); user != "" {
-				conn.DBUser = user
-			}
-			if pass := s.Key("password").MustString(""); pass != "" {
-				conn.DBPassword = pass
-			}
-			if socket := s.Key("socket").MustString(""); socket != "" {
-				conn.Socket = socket
-			}
-			if host := s.Key("host").MustString(""); host != "" {
-				conn.DBHost = host
-			}
-			if port := s.Key("port").MustString(""); port != "" {
-				conn.DBPort = port
-			}
-			break
-		}
-	}
-
-	out := mysql.ConnectParams{
-		User:   conn.DBUser,
-		Passwd: conn.DBPassword,
-	}
-
-	if conn.Socket != "" {
-		out.Net = "unix"
-		out.Addr = conn.Socket
-	} else {
-		out.Net = "tcp"
-		out.Addr = fmt.Sprintf("%s:%s", conn.DBHost, conn.DBPort)
-	}
-
-	return out, nil
 }

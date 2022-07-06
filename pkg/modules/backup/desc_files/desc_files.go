@@ -176,6 +176,10 @@ func (j *descFileJob) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs [
 	return
 }
 
+func (j *descFileJob) Close() error {
+	return nil
+}
+
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, gZip bool) (err error) {
 	backupWriter, err := misc.GetBackupWriter(tmpBackupPath, gZip)
 	defer backupWriter.Close()

@@ -18,6 +18,7 @@ import (
 func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, errs []error) {
 	var err error
 	storagesMap = make(map[string]interfaces.Storage)
+	storagesMap["local"] = local.Init()
 
 	for _, st := range conf.StorageConnects {
 
@@ -73,7 +74,6 @@ func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, err
 		} else {
 			errs = append(errs, fmt.Errorf("unable to define `%s` storage connect type by its params. Allowed connect params: %s", st.Name, strings.Join(misc.AllowedStorageConnectParams, ", ")))
 		}
-		storagesMap["local"] = local.Init()
 	}
 
 	return

@@ -148,7 +148,6 @@ func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 			files, err := f.Client.ReadDir(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					appCtx.Log().Warnf("Error: %s", err)
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
@@ -191,7 +190,7 @@ func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 	return nil
 }
 
-func (f FTP) mkDir(dstPath string) error {
+func (f *FTP) mkDir(dstPath string) error {
 
 	dstPath = path.Clean(dstPath)
 	if dstPath == "." || dstPath == "/" {
@@ -220,7 +219,7 @@ func (f FTP) mkDir(dstPath string) error {
 	return nil
 }
 
-func (f FTP) getInfo(dstPath string) (os.FileInfo, error) {
+func (f *FTP) getInfo(dstPath string) (os.FileInfo, error) {
 
 	dir := path.Dir(dstPath)
 	base := path.Base(dstPath)
@@ -236,4 +235,8 @@ func (f FTP) getInfo(dstPath string) (os.FileInfo, error) {
 		}
 	}
 	return nil, ErrorObjectNotFound
+}
+
+func (f *FTP) Close() error {
+	return f.Client.Close()
 }

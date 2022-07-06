@@ -117,7 +117,6 @@ func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) 
 			files, err := s.Client.Ls(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					appCtx.Log().Warnf("Error: '%s' %s", bakDir, err)
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
@@ -208,4 +207,8 @@ func (s *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
 		}
 	}
 	return nil, ErrorFileNotFound
+}
+
+func (s *WebDav) Close() error {
+	return nil
 }

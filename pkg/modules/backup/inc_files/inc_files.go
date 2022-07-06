@@ -19,3 +19,7 @@ func (j Job) GetJobType() string {
 func (j Job) DoBackup(appCtx *appctx.AppContext) (errs []error) {
 	return
 }
+
+func (j *Job) Close() error {
+	return nil
+}

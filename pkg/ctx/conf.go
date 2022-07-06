@@ -62,7 +62,7 @@ type cfgSource struct {
 	ExcludeCollections []string `conf:"exclude_collections"`
 	Gzip               bool     `conf:"gzip" conf_extraopts:"default=false"`
 	IsSlave            bool     `conf:"is_slave" conf_extraopts:"default=false"`
-	LockTables         bool     `conf:"lock_tables" conf_extraopts:"default=false"`
+	ExtraKeys          string   `conf:"extra_keys"`
 	SkipBackupRotate   bool     `conf:"skip_backup_rotate" conf_extraopts:"default=false"` // used by external
 }
 

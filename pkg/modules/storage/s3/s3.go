@@ -160,3 +160,7 @@ func (s *S3) getObjectsPeriodicMap(ofsPartsList []string) (objs map[string][]min
 	}
 	return
 }
+
+func (s *S3) Close() error {
+	return nil
+}

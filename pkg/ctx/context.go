@@ -13,10 +13,11 @@ import (
 // Ctx defines application custom context
 type Ctx struct {
 	CmdParams    interface{}
-	Jobs         []interfaces.Job
-	FilesJobs    []interfaces.Job
-	DBsJobs      []interfaces.Job
-	ExternalJobs []interfaces.Job
+	Storages     interfaces.Storages
+	Jobs         interfaces.Jobs
+	FilesJobs    interfaces.Jobs
+	DBsJobs      interfaces.Jobs
+	ExternalJobs interfaces.Jobs
 }
 
 // Init initiates application custom context
@@ -40,6 +41,9 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 			fmt.Printf("  %s\n", err)
 		}
 		os.Exit(1)
+	}
+	for _, s := range storages {
+		c.Storages = append(c.Storages, s)
 	}
 
 	c.Jobs, errs = jobsInit(conf.Jobs, storages)
@@ -73,6 +77,9 @@ func (c *Ctx) Reload(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) 
 
 	opts.Log.Debug("reloading context")
 
+	_ = c.Jobs.Close()
+	_ = c.Storages.Close()
+
 	return c.Init(opts)
 }
 
@@ -80,6 +87,9 @@ func (c *Ctx) Reload(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) 
 func (c *Ctx) Free(opts appctx.CustomContextFuncOpts) int {
 
 	opts.Log.Debug("freeing context")
+
+	_ = c.Jobs.Close()
+	_ = c.Storages.Close()
 
 	return 0
 }

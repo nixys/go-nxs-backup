@@ -117,7 +117,6 @@ func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 			files, err := s.Target.ReadDirPlus(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					appCtx.Log().Warnf("Error: '%s' %s", bakDir, err)
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
@@ -208,4 +207,8 @@ func (s *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 		}
 	}
 	return nil, ErrorFileNotFound
+}
+
+func (s *NFS) Close() error {
+	return s.Target.Close()
 }

@@ -101,7 +101,6 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) e
 			files, err := ioutil.ReadDir(backupDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					appCtx.Log().Warnf("Error: %s", err)
 					continue
 				}
 				appCtx.Log().Errorf("Failed to read files in directory '%s' with next error: %s", backupDir, err)
@@ -141,5 +140,9 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) e
 		return fmt.Errorf("some errors on file deletion")
 	}
 
+	return nil
+}
+
+func (l *Local) Close() error {
 	return nil
 }

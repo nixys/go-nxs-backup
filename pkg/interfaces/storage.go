@@ -13,6 +13,7 @@ type Storage interface {
 	SetRetention(r storage.Retention)
 	CopyFile(appCtx *appctx.AppContext, tmpBackupPath, ofs string, move bool) error
 	ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error
+	Close() error
 }
 
 type Storages []Storage
@@ -59,4 +60,11 @@ func (s Storages) Delivery(appCtx *appctx.AppContext, dumpedObjects map[string]s
 		}
 	}
 	return
+}
+
+func (s Storages) Close() error {
+	for _, st := range s {
+		_ = st.Close()
+	}
+	return nil
 }
