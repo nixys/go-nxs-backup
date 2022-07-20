@@ -13,7 +13,6 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
-	"nxs-backup/misc"
 	. "nxs-backup/modules/storage"
 )
 
@@ -71,7 +70,7 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 		return err
 	}
 
-	bucketPaths := misc.GetDstList(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
+	bucketPaths := GetDstList(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
 
 	for _, bucketPath := range bucketPaths {
 		n, err := s.Client.PutObject(context.Background(), s.BucketName, bucketPath, source, sourceStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})

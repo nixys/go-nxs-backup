@@ -10,7 +10,6 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
-	"nxs-backup/misc"
 	. "nxs-backup/modules/storage"
 )
 
@@ -41,7 +40,7 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 	}
 	defer source.Close()
 
-	dstPath, links, err := misc.GetDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, l.Days, l.Weeks, l.Months)
+	dstPath, links, err := GetDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, l.Days, l.Weeks, l.Months)
 	if err != nil {
 		return
 	}

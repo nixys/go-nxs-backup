@@ -9,7 +9,6 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
-	"nxs-backup/misc"
 	"nxs-backup/modules/backend/webdav"
 	. "nxs-backup/modules/storage"
 )
@@ -68,7 +67,7 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 	}
 	defer srcFile.Close()
 
-	dstPath, links, err := misc.GetDstAndLinks(path.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
+	dstPath, links, err := GetDstAndLinks(path.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
 		return err

@@ -64,6 +64,7 @@ type cfgSource struct {
 	IsSlave            bool     `conf:"is_slave" conf_extraopts:"default=false"`
 	ExtraKeys          string   `conf:"extra_keys"`
 	SkipBackupRotate   bool     `conf:"skip_backup_rotate" conf_extraopts:"default=false"` // used by external
+	PrepareXtrabackup  bool     `conf:"prepare_xtrabackup" conf_extraopts:"default=false"`
 }
 
 type cfgConnect struct {

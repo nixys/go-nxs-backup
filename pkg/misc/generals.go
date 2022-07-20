@@ -6,7 +6,6 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,8 +13,8 @@ import (
 )
 
 const (
-	monthlyBackupDay = "1"
-	weeklyBackupDay  = "7"
+	MonthlyBackupDay = "1"
+	WeeklyBackupDay  = "7"
 )
 
 var AllowedJobTypes = []string{
@@ -84,20 +83,20 @@ func GetDateTimeNow(unit string) (res string) {
 func GetNeedToMakeBackup(day, week, month int) bool {
 
 	if day > 0 ||
-		(week > 0 && GetDateTimeNow("dow") == weeklyBackupDay) ||
-		(month > 0 && GetDateTimeNow("dom") == monthlyBackupDay) {
+		(week > 0 && GetDateTimeNow("dow") == WeeklyBackupDay) ||
+		(month > 0 && GetDateTimeNow("dom") == MonthlyBackupDay) {
 		return true
 	}
 
 	return false
 }
 
-func GetBackupFullPath(dirPath, baseName, baseExtension, prefix string, gZip bool) (fullPath string) {
+func GetFileFullPath(dirPath, baseName, baseExtension, prefix string, gZip bool) (fullPath string) {
 
 	fileName := fmt.Sprintf("%s_%s.%s", baseName, GetDateTimeNow(""), baseExtension)
 
 	if prefix != "" {
-		fileName = fmt.Sprintf("%s-%s", prefix, baseName)
+		fileName = fmt.Sprintf("%s-%s", prefix, fileName)
 	}
 
 	if gZip {
@@ -120,71 +119,17 @@ func Contains(s []string, str string) bool {
 	return false
 }
 
-func GetDstAndLinks(bakFile, ofs, bakPath string, days, weeks, months int) (dst string, links map[string]string, err error) {
-
-	var rel string
-	links = make(map[string]string)
-
-	if GetDateTimeNow("dom") == monthlyBackupDay && months > 0 {
-		dstPath := path.Join(bakPath, ofs, "monthly")
-		dst = path.Join(dstPath, bakFile)
-	}
-	if GetDateTimeNow("dow") == weeklyBackupDay && weeks > 0 {
-		dstPath := path.Join(bakPath, ofs, "weekly")
-		if dst != "" {
-			rel, err = filepath.Rel(dstPath, dst)
-			if err != nil {
-				return
-			}
-			links[path.Join(dstPath, bakFile)] = rel
-		} else {
-			dst = path.Join(dstPath, bakFile)
-		}
-	}
-	if days > 0 {
-		dstPath := path.Join(bakPath, ofs, "daily")
-		if dst != "" {
-			rel, err = filepath.Rel(dstPath, dst)
-			if err != nil {
-				return
-			}
-			links[path.Join(dstPath, bakFile)] = rel
-		} else {
-			dst = path.Join(dstPath, bakFile)
-		}
-	}
-
-	return
-}
-
-func GetDstList(bakFile, ofs, bakPath string, days, weeks, months int) (dst []string) {
-
-	basePath := strings.TrimPrefix(path.Join(bakPath, ofs), "/")
-
-	if GetDateTimeNow("dom") == monthlyBackupDay && months > 0 {
-		dst = append(dst, path.Join(basePath, "monthly", bakFile))
-	}
-	if GetDateTimeNow("dow") == weeklyBackupDay && weeks > 0 {
-		dst = append(dst, path.Join(basePath, "weekly", bakFile))
-	}
-	if days > 0 {
-		dst = append(dst, path.Join(basePath, "daily", bakFile))
-	}
-
-	return
-}
-
-func GetBackupWriter(filePath string, gZip bool) (io.WriteCloser, error) {
-	backupFile, err := os.Create(filePath)
+func GetFileWriter(filePath string, gZip bool) (io.WriteCloser, error) {
+	file, err := os.Create(filePath)
 	if err != nil {
 		return nil, err
 	}
 
 	var writer io.WriteCloser
 	if gZip {
-		writer = gzip.NewWriter(backupFile)
+		writer = gzip.NewWriter(file)
 	} else {
-		writer = backupFile
+		writer = file
 	}
 
 	return writer, nil

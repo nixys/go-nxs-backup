@@ -12,7 +12,6 @@ import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/prasad83/goftp"
 
-	"nxs-backup/misc"
 	. "nxs-backup/modules/storage"
 )
 
@@ -103,7 +102,7 @@ func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	//	return err
 	//}
 
-	remotePaths := misc.GetDstList(path.Base(tmpBackup), ofs, f.BackupPath, f.Days, f.Weeks, f.Months)
+	remotePaths := GetDstList(path.Base(tmpBackup), ofs, f.BackupPath, f.Days, f.Weeks, f.Months)
 
 	for _, dstPath := range remotePaths {
 		// Make remote directories

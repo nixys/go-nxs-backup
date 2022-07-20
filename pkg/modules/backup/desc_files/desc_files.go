@@ -3,9 +3,6 @@ package desc_files
 import (
 	"archive/tar"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,6 +10,7 @@ import (
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/backend/targz"
 )
 
 type descFileJob struct {
@@ -141,7 +139,7 @@ func (j *descFileJob) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs [
 
 			for ofsPart, ofs := range target {
 
-				tmpBackupFullPath := misc.GetBackupFullPath(tmpDir, ofsPart, "tar", "", src.gzip)
+				tmpBackupFullPath := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", src.gzip)
 				err := createTmpBackup(appCtx, tmpBackupFullPath, ofs, src.gzip)
 				if err != nil {
 					appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFullPath, j.name)
@@ -181,97 +179,19 @@ func (j *descFileJob) Close() error {
 }
 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, gZip bool) (err error) {
-	backupWriter, err := misc.GetBackupWriter(tmpBackupPath, gZip)
-	defer backupWriter.Close()
+	backupWriter, err := misc.GetFileWriter(tmpBackupPath, gZip)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create tmp file: %s", err)
 		return err
 	}
+	defer backupWriter.Close()
 
 	tarWriter := tar.NewWriter(backupWriter)
 	defer tarWriter.Close()
 
-	err = tarDirectory(ofs, tarWriter, filepath.Dir(ofs))
+	err = targz.TarDirectory(ofs, tarWriter, filepath.Dir(ofs))
 	if err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 	}
 	return
-}
-
-func tarDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
-
-	files, err := ioutil.ReadDir(directory)
-	if err != nil {
-		return err
-	}
-
-	if len(files) == 0 {
-		dirInfo, err := os.Stat(directory)
-		if err != nil {
-			return err
-		}
-		err = writeTar(directory, tarWriter, dirInfo, subPath)
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, file := range files {
-		currentPath := filepath.Join(directory, file.Name())
-		if file.IsDir() {
-			err := tarDirectory(currentPath, tarWriter, subPath)
-			if err != nil {
-				return err
-			}
-		} else {
-			err = writeTar(currentPath, tarWriter, file, subPath)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func writeTar(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPath string) error {
-	var link string
-	if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
-		var err error
-		if link, err = os.Readlink(path); err != nil {
-			return err
-		}
-	}
-
-	if fileInfo.Mode()&os.ModeSocket == os.ModeSocket {
-		return nil
-	}
-
-	header, err := tar.FileInfoHeader(fileInfo, link)
-	if err != nil {
-		return err
-	}
-	header.Name = path[len(subPath):]
-
-	err = tarWriter.WriteHeader(header)
-	if err != nil {
-		return err
-	}
-
-	if !fileInfo.Mode().IsRegular() {
-		return nil
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(tarWriter, file)
-	if err != nil {
-		return err
-	}
-
-	return err
 }

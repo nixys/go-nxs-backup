@@ -7,8 +7,10 @@ import (
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/backend/mysql_connect"
 	"nxs-backup/modules/backup/desc_files"
 	"nxs-backup/modules/backup/mysql"
+	"nxs-backup/modules/backup/mysql_xtrabackup"
 	"nxs-backup/modules/storage"
 )
 
@@ -94,7 +96,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				}
 
 				sources = append(sources, mysql.SourceParams{
-					ConnectParams: mysql.ConnectParams{
+					ConnectParams: mysql_connect.Params{
 						AuthFile: src.Connect.AuthFile,
 						User:     src.Connect.DBUser,
 						Passwd:   src.Connect.DBPassword,
@@ -111,6 +113,48 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			}
 
 			job, err := mysql.Init(mysql.JobParams{
+				Name:                 j.JobName,
+				TmpDir:               j.TmpDir,
+				NeedToMakeBackup:     needToMakeBackup,
+				SafetyBackup:         j.SafetyBackup,
+				DeferredCopyingLevel: j.DeferredCopyingLevel,
+				Storages:             jobStorages,
+				Sources:              sources,
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			jobs = append(jobs, job)
+
+		case "mysql_xtrabackup":
+			var sources []mysql_xtrabackup.SourceParams
+
+			for _, src := range j.Sources {
+				var extraKeys []string
+				if len(src.ExtraKeys) > 0 {
+					extraKeys = strings.Split(src.ExtraKeys, " ")
+				}
+
+				sources = append(sources, mysql_xtrabackup.SourceParams{
+					ConnectParams: mysql_connect.Params{
+						AuthFile: src.Connect.AuthFile,
+						User:     src.Connect.DBUser,
+						Passwd:   src.Connect.DBPassword,
+						Host:     src.Connect.DBHost,
+						Port:     src.Connect.DBPort,
+						Socket:   src.Connect.Socket,
+					},
+					TargetDBs: src.Targets,
+					Excludes:  src.Excludes,
+					Gzip:      src.Gzip,
+					IsSlave:   src.IsSlave,
+					Prepare:   src.PrepareXtrabackup,
+					ExtraKeys: extraKeys,
+				})
+			}
+
+			job, err := mysql_xtrabackup.Init(mysql_xtrabackup.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,

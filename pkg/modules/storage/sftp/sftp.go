@@ -98,7 +98,7 @@ func (s *SFTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool
 	}
 	defer srcFile.Close()
 
-	dstPath, links, err := misc.GetDstAndLinks(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
+	dstPath, links, err := GetDstAndLinks(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
 		return err

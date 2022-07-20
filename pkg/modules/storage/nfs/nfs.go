@@ -12,7 +12,6 @@ import (
 	"github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 
-	"nxs-backup/misc"
 	. "nxs-backup/modules/storage"
 )
 
@@ -77,7 +76,7 @@ func (s *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	}
 	defer source.Close()
 
-	remotePaths := misc.GetDstList(path.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
+	remotePaths := GetDstList(path.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
 
 	for _, dstPath := range remotePaths {
 		// Make remote directories
