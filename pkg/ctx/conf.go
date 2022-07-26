@@ -72,6 +72,7 @@ type cfgConnect struct {
 	DBHost     string `conf:"db_host"`
 	DBPort     string `conf:"db_port"`
 	Socket     string `conf:"socket"`
+	SSLMode    string `conf:"ssl_mode" conf_extraopts:"default=require"`
 	DBUser     string `conf:"db_user"`
 	DBPassword string `conf:"db_password"`
 	PathToConf string `conf:"path_to_conf"`

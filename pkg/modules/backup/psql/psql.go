@@ -1,13 +1,10 @@
-package mysql_xtrabackup
+package psql
 
 import (
-	"archive/tar"
 	"bytes"
 	"fmt"
-	"os"
+	"net/url"
 	"os/exec"
-	"path"
-	"path/filepath"
 	"regexp"
 
 	"github.com/jmoiron/sqlx"
@@ -16,8 +13,7 @@ import (
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
-	"nxs-backup/modules/backend/mysql_connect"
-	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/backend/psql_connect"
 )
 
 type job struct {
@@ -34,12 +30,10 @@ type job struct {
 
 type source struct {
 	connect   *sqlx.DB
-	authFile  string
+	connUrl   *url.URL
 	targets   []target
 	extraKeys []string
 	gzip      bool
-	isSlave   bool
-	prepare   bool
 }
 
 type target struct {
@@ -58,21 +52,20 @@ type JobParams struct {
 }
 
 type SourceParams struct {
-	ConnectParams mysql_connect.Params
+	ConnectParams psql_connect.Params
 	TargetDBs     []string
 	Excludes      []string
 	ExtraKeys     []string
 	Gzip          bool
 	IsSlave       bool
-	Prepare       bool
 }
 
 func Init(params JobParams) (*job, error) {
 
-	// check if xtrabackup available
-	_, err := exec_cmd.Exec("xtrabackup", "--version")
+	// check if mysqldump available
+	_, err := exec_cmd.Exec("pg_dump", "--version")
 	if err != nil {
-		return nil, fmt.Errorf("failed to check xtrabackup version. Please check that `xtrabackup` installed. Error: %s", err)
+		return nil, fmt.Errorf("failed to check pg_dump version. Please check that `pg_dump` installed. Error: %s", err)
 	}
 
 	job := &job{
@@ -87,14 +80,20 @@ func Init(params JobParams) (*job, error) {
 
 	for _, src := range params.Sources {
 
-		dbConn, authFile, err := mysql_connect.GetConnectAndCnfFile(src.ConnectParams, "xtrabackup")
+		for _, key := range src.ExtraKeys {
+			if matched, _ := regexp.MatchString(`(-f|--file)`, key); matched {
+				return nil, fmt.Errorf("It is forbidden to use the \"--file|-f\" parameter as part of extra_keys. ")
+			}
+		}
+
+		dbConn, connUrl, err := psql_connect.GetConnect(src.ConnectParams)
 		if err != nil {
 			return nil, err
 		}
 
 		// fetch all databases
 		var databases []string
-		err = dbConn.Select(&databases, "show databases")
+		err = dbConn.Select(&databases, "SELECT datname FROM pg_database WHERE datistemplate = false;")
 		if err != nil {
 			return nil, err
 		}
@@ -111,10 +110,8 @@ func Init(params JobParams) (*job, error) {
 				var ignoreTables []string
 				compRegEx := regexp.MustCompile(`^(?P<db>` + db + `)\.(?P<table>.*$)`)
 				for _, excl := range src.Excludes {
-					if matched, _ := regexp.MatchString(`^\^`+db+`\[\.\].*$`, excl); matched {
-						ignoreTables = append(ignoreTables, "--tables-exclude="+excl)
-					} else if match := compRegEx.FindStringSubmatch(excl); len(match) > 0 {
-						exclTable := "--tables-exclude=^" + db + "[.]" + match[2]
+					if match := compRegEx.FindStringSubmatch(excl); len(match) > 0 {
+						exclTable := "--exclude-table=" + match[2]
 						ignoreTables = append(ignoreTables, exclTable)
 					}
 				}
@@ -127,11 +124,9 @@ func Init(params JobParams) (*job, error) {
 			job.sources = append(job.sources, source{
 				targets:   targets,
 				connect:   dbConn,
-				authFile:  authFile,
 				extraKeys: src.ExtraKeys,
 				gzip:      src.Gzip,
-				isSlave:   src.IsSlave,
-				prepare:   src.Prepare,
+				connUrl:   connUrl,
 			})
 		}
 	}
@@ -169,7 +164,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 		for _, target := range src.targets {
 
-			tmpBackupFullPath := misc.GetFileFullPath(tmpDir, target.dbName, "tar", "", src.gzip)
+			tmpBackupFullPath := misc.GetFileFullPath(tmpDir, target.dbName, "sql", "", src.gzip)
 
 			err := createTmpBackup(appCtx, tmpBackupFullPath, src, target)
 			if err != nil {
@@ -204,7 +199,6 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 func (j *job) Close() error {
 	for _, src := range j.sources {
-		_ = os.Remove(src.authFile)
 		_ = src.connect.Close()
 	}
 	return nil
@@ -212,113 +206,46 @@ func (j *job) Close() error {
 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, src source, target target) (errs []error) {
 
-	var (
-		stderr, stdout bytes.Buffer
-		backupArgs     []string
-		prepareArgs    []string
-	)
-
-	tmpXtrabackupPath := path.Join(path.Dir(tmpBackupPath), "xtrabackup_"+target.dbName+"_"+misc.GetDateTimeNow(""))
-
 	backupWriter, err := misc.GetFileWriter(tmpBackupPath, src.gzip)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
 		return append(errs, err)
 	}
-	defer func() { _ = backupWriter.Close() }()
+	defer backupWriter.Close()
 
-	// define commands args with auth options
-	backupArgs = append(backupArgs, "--defaults-file="+src.authFile)
-	prepareArgs = backupArgs
-	// add backup options
-	backupArgs = append(backupArgs, "--backup", "--target-dir="+tmpXtrabackupPath)
-	backupArgs = append(backupArgs, "--databases="+target.dbName)
+	var args []string
+	// define command args
+	// add tables exclude
 	if len(target.ignoreTables) > 0 {
-		backupArgs = append(backupArgs, target.ignoreTables...)
+		args = append(args, target.ignoreTables...)
 	}
-	if src.isSlave {
-		backupArgs = append(backupArgs, "--safe-slave-backup")
-	}
-	// add extra backup options
+	// add extra dump cmd options
 	if len(src.extraKeys) > 0 {
-		backupArgs = append(backupArgs, src.extraKeys...)
+		args = append(args, src.extraKeys...)
 	}
+	// add db name
+	src.connUrl.Path = target.dbName
+	args = append(args, "--dbname="+src.connUrl.String())
 
-	cmd := exec.Command("xtrabackup", backupArgs...)
-	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
+	cmd := exec.Command("pg_dump", args...)
+	cmd.Stdout = backupWriter
 	cmd.Stderr = &stderr
 
 	if err = cmd.Start(); err != nil {
-		appCtx.Log().Errorf("Unable to start xtrabackup. Error: %s", err)
+		appCtx.Log().Errorf("Unable to start pd_dump. Error: %s", err)
 		errs = append(errs, err)
 		return
 	}
-	appCtx.Log().Infof("Starting `%s` dump", target.dbName)
+	appCtx.Log().Infof("Starting a `%s` dump", target.dbName)
 
 	if err = cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, err)
-		appCtx.Log().Error(stderr)
-		errs = append(errs, err)
-		return
-	}
-
-	if err = checkXtrabackupStatus(stderr.String()); err != nil {
-		_ = os.WriteFile("/home/r.andreev/Projects/NxsProjects/nxs-backup/tmp/test/file.log", stderr.Bytes(), 0644)
-		appCtx.Log().Errorf("Dump create fail. Error: %s", err)
-		errs = append(errs, err)
-		return
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-
-	if src.prepare {
-		// add prepare options
-		prepareArgs = append(prepareArgs, "--prepare", "--export", "--target-dir="+tmpXtrabackupPath)
-		cmd = exec.Command("xtrabackup", prepareArgs...)
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-
-		if err = cmd.Run(); err != nil {
-			appCtx.Log().Errorf("Unable to run xtrabackup. Error: %s", err)
-			appCtx.Log().Error(stderr)
-			errs = append(errs, err)
-			return
-		}
-
-		if err = checkXtrabackupStatus(stderr.String()); err != nil {
-			appCtx.Log().Errorf("Xtrabackup prepare fail. Error: %s", err)
-			errs = append(errs, err)
-			return
-		}
-
-		stdout.Reset()
-		stderr.Reset()
-	}
-
-	tarWriter := tar.NewWriter(backupWriter)
-	defer func() { _ = tarWriter.Close() }()
-
-	err = targz.TarDirectory(tmpXtrabackupPath, tarWriter, filepath.Dir(tmpXtrabackupPath))
-	if err != nil {
-		appCtx.Log().Errorf("Unable to make tar: %s", err)
+		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, stderr.String())
 		errs = append(errs, err)
 		return
 	}
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
 
-	if err = os.RemoveAll(tmpXtrabackupPath); err != nil {
-		appCtx.Log().Warnf("Failed to delete tmp xtrabackup dump directory: %s", err)
-	}
-
 	return
-}
-
-func checkXtrabackupStatus(out string) error {
-	if matched, _ := regexp.MatchString(`.*completed OK!\n$`, out); matched {
-		return nil
-	}
-
-	return fmt.Errorf("xtrabackup finished not success. Please check result:\n%s", out)
 }

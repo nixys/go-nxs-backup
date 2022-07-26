@@ -8,9 +8,11 @@ import (
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/mysql_connect"
+	"nxs-backup/modules/backend/psql_connect"
 	"nxs-backup/modules/backup/desc_files"
 	"nxs-backup/modules/backup/mysql"
 	"nxs-backup/modules/backup/mysql_xtrabackup"
+	"nxs-backup/modules/backup/psql"
 	"nxs-backup/modules/storage"
 )
 
@@ -155,6 +157,47 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			}
 
 			job, err := mysql_xtrabackup.Init(mysql_xtrabackup.JobParams{
+				Name:                 j.JobName,
+				TmpDir:               j.TmpDir,
+				NeedToMakeBackup:     needToMakeBackup,
+				SafetyBackup:         j.SafetyBackup,
+				DeferredCopyingLevel: j.DeferredCopyingLevel,
+				Storages:             jobStorages,
+				Sources:              sources,
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			jobs = append(jobs, job)
+
+		case "postgresql":
+			var sources []psql.SourceParams
+
+			for _, src := range j.Sources {
+				var extraKeys []string
+				if len(src.ExtraKeys) > 0 {
+					extraKeys = strings.Split(src.ExtraKeys, " ")
+				}
+
+				sources = append(sources, psql.SourceParams{
+					ConnectParams: psql_connect.Params{
+						User:    src.Connect.DBUser,
+						Passwd:  src.Connect.DBPassword,
+						Host:    src.Connect.DBHost,
+						Port:    src.Connect.DBPort,
+						Socket:  src.Connect.Socket,
+						SSLMode: src.Connect.SSLMode,
+					},
+					TargetDBs: src.Targets,
+					Excludes:  src.Excludes,
+					Gzip:      src.Gzip,
+					IsSlave:   src.IsSlave,
+					ExtraKeys: extraKeys,
+				})
+			}
+
+			job, err := psql.Init(psql.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,
