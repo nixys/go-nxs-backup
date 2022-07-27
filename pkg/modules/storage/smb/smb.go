@@ -12,6 +12,7 @@ import (
 	"github.com/hirochachacha/go-smb2"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
+	"nxs-backup/interfaces"
 	. "nxs-backup/modules/storage"
 )
 
@@ -196,4 +197,9 @@ func (s *SMB) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 func (s *SMB) Close() error {
 	_ = s.share.Umount()
 	return s.session.Logoff()
+}
+
+func (s *SMB) Clone() interfaces.Storage {
+	cl := *s
+	return &cl
 }

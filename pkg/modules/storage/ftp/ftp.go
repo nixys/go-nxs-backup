@@ -12,6 +12,7 @@ import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/prasad83/goftp"
 
+	"nxs-backup/interfaces"
 	. "nxs-backup/modules/storage"
 )
 
@@ -238,4 +239,9 @@ func (f *FTP) getInfo(dstPath string) (os.FileInfo, error) {
 
 func (f *FTP) Close() error {
 	return f.Client.Close()
+}
+
+func (f *FTP) Clone() interfaces.Storage {
+	cl := *f
+	return &cl
 }

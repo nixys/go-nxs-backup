@@ -12,6 +12,7 @@ import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/pkg/sftp"
 
+	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	. "nxs-backup/modules/storage"
 )
@@ -198,4 +199,9 @@ func (s *SFTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) er
 
 func (s *SFTP) Close() error {
 	return s.Client.Close()
+}
+
+func (s *SFTP) Clone() interfaces.Storage {
+	cl := *s
+	return &cl
 }

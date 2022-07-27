@@ -9,6 +9,7 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
+	"nxs-backup/interfaces"
 	"nxs-backup/modules/backend/webdav"
 	. "nxs-backup/modules/storage"
 )
@@ -45,21 +46,21 @@ func Init(params Params) (*WebDav, error) {
 	}, nil
 }
 
-func (s *WebDav) IsLocal() int { return 0 }
+func (wd *WebDav) IsLocal() int { return 0 }
 
-func (s *WebDav) SetBackupPath(path string) {
-	s.BackupPath = path
+func (wd *WebDav) SetBackupPath(path string) {
+	wd.BackupPath = path
 }
 
-func (s *WebDav) SetRetention(r Retention) {
-	s.Retention = r
+func (wd *WebDav) SetRetention(r Retention) {
+	wd.Retention = r
 }
 
-func (s *WebDav) ListFiles() (err error) {
+func (wd *WebDav) ListFiles() (err error) {
 	return
 }
 
-func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
+func (wd *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
@@ -67,7 +68,7 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 	}
 	defer srcFile.Close()
 
-	dstPath, links, err := GetDstAndLinks(path.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
+	dstPath, links, err := GetDstAndLinks(path.Base(tmpBackup), ofs, wd.BackupPath, wd.Days, wd.Weeks, wd.Months)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
 		return err
@@ -75,13 +76,13 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 
 	// Make remote directories
 	remDir := path.Dir(dstPath)
-	err = s.mkDir(remDir)
+	err = wd.mkDir(remDir)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
 		return err
 	}
 
-	err = s.Client.Upload(dstPath, srcFile)
+	err = wd.Client.Upload(dstPath, srcFile)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to upload file: %s", err)
 		return err
@@ -90,12 +91,12 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 
 	for dst, src := range links {
 		remDir = path.Dir(dst)
-		err = s.mkDir(path.Dir(dst))
+		err = wd.mkDir(path.Dir(dst))
 		if err != nil {
 			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
 			return err
 		}
-		err = s.Client.Copy(src, dst)
+		err = wd.Client.Copy(src, dst)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to make copy: %s", err)
 			return err
@@ -105,15 +106,15 @@ func (s *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bo
 	return nil
 }
 
-func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (wd *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
 	var errs []error
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
 		for _, ofsPart := range ofsPartsList {
-			bakDir := path.Join(s.BackupPath, ofsPart, period)
-			files, err := s.Client.Ls(bakDir)
+			bakDir := path.Join(wd.BackupPath, ofsPart, period)
+			files, err := wd.Client.Ls(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
 					continue
@@ -129,16 +130,16 @@ func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) 
 
 				switch period {
 				case "daily":
-					retentionDate = fileDate.AddDate(0, 0, s.Retention.Days)
+					retentionDate = fileDate.AddDate(0, 0, wd.Retention.Days)
 				case "weekly":
-					retentionDate = fileDate.AddDate(0, 0, s.Retention.Weeks*7)
+					retentionDate = fileDate.AddDate(0, 0, wd.Retention.Weeks*7)
 				case "monthly":
-					retentionDate = fileDate.AddDate(0, s.Retention.Months, 0)
+					retentionDate = fileDate.AddDate(0, wd.Retention.Months, 0)
 				}
 
 				retentionDate = retentionDate.Truncate(24 * time.Hour)
 				if curDate.After(retentionDate) {
-					err = s.Client.Rm(path.Join(bakDir, file.Name()))
+					err = wd.Client.Rm(path.Join(bakDir, file.Name()))
 					if err != nil {
 						appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 							file.Name(), bakDir, err)
@@ -158,13 +159,13 @@ func (s *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) 
 	return nil
 }
 
-func (s *WebDav) mkDir(dstPath string) error {
+func (wd *WebDav) mkDir(dstPath string) error {
 
 	dstPath = path.Clean(dstPath)
 	if dstPath == "." || dstPath == "/" {
 		return nil
 	}
-	fi, err := s.getInfo(dstPath)
+	fi, err := wd.getInfo(dstPath)
 	if err == nil {
 		if fi.IsDir() {
 			return nil
@@ -175,11 +176,11 @@ func (s *WebDav) mkDir(dstPath string) error {
 	}
 
 	dir := path.Dir(dstPath)
-	err = s.mkDir(dir)
+	err = wd.mkDir(dir)
 	if err != nil {
 		return err
 	}
-	err = s.Client.Mkdir(dstPath)
+	err = wd.Client.Mkdir(dstPath)
 	if err != nil {
 		return err
 	}
@@ -187,12 +188,12 @@ func (s *WebDav) mkDir(dstPath string) error {
 	return nil
 }
 
-func (s *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
+func (wd *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
 
 	dir := path.Dir(dstPath)
 	base := path.Base(dstPath)
 
-	files, err := s.Client.Ls(dir)
+	files, err := wd.Client.Ls(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrorFileNotFound
@@ -208,6 +209,11 @@ func (s *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
 	return nil, ErrorFileNotFound
 }
 
-func (s *WebDav) Close() error {
+func (wd *WebDav) Close() error {
 	return nil
+}
+
+func (wd *WebDav) Clone() interfaces.Storage {
+	cl := *wd
+	return &cl
 }

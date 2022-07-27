@@ -34,7 +34,7 @@ func Perform(appCtx *appctx.AppContext, job interfaces.Job) (errs []error) {
 	tmpDirPath := path.Join(job.GetTempDir(), fmt.Sprintf("%s_%s", job.GetType(), misc.GetDateTimeNow("")))
 	err := os.MkdirAll(tmpDirPath, os.ModePerm)
 	if err != nil {
-		appCtx.Log().Errorf("Failed to create tmp dir with next error: %s", err)
+		appCtx.Log().Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", job.GetName(), err)
 		return []error{err}
 	}
 

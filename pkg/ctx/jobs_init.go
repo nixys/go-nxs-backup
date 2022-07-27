@@ -13,6 +13,7 @@ import (
 	"nxs-backup/modules/backup/mysql"
 	"nxs-backup/modules/backup/mysql_xtrabackup"
 	"nxs-backup/modules/backup/psql"
+	"nxs-backup/modules/backup/psql_basebackup"
 	"nxs-backup/modules/storage"
 )
 
@@ -50,10 +51,11 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				needToMakeBackup = true
 			}
 
-			s.SetBackupPath(stOpts.BackupPath)
-			s.SetRetention(storage.Retention(stOpts.Retention))
+			st := s.Clone()
+			st.SetBackupPath(stOpts.BackupPath)
+			st.SetRetention(storage.Retention(stOpts.Retention))
 
-			jobStorages = append(jobStorages, s)
+			jobStorages = append(jobStorages, st)
 		}
 
 		// sorting storages for installing local as last
@@ -66,6 +68,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			var sources []desc_files.SourceParams
 			for _, src := range j.Sources {
 				sources = append(sources, desc_files.SourceParams{
+					Name:     src.Name,
 					Targets:  src.Targets,
 					Excludes: src.Excludes,
 					Gzip:     src.Gzip,
@@ -106,6 +109,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 						Port:     src.Connect.DBPort,
 						Socket:   src.Connect.Socket,
 					},
+					Name:      src.Name,
 					TargetDBs: src.Targets,
 					Excludes:  src.Excludes,
 					Gzip:      src.Gzip,
@@ -147,6 +151,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 						Port:     src.Connect.DBPort,
 						Socket:   src.Connect.Socket,
 					},
+					Name:      src.Name,
 					TargetDBs: src.Targets,
 					Excludes:  src.Excludes,
 					Gzip:      src.Gzip,
@@ -189,6 +194,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 						Socket:  src.Connect.Socket,
 						SSLMode: src.Connect.SSLMode,
 					},
+					Name:      src.Name,
 					TargetDBs: src.Targets,
 					Excludes:  src.Excludes,
 					Gzip:      src.Gzip,
@@ -198,6 +204,46 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			}
 
 			job, err := psql.Init(psql.JobParams{
+				Name:                 j.JobName,
+				TmpDir:               j.TmpDir,
+				NeedToMakeBackup:     needToMakeBackup,
+				SafetyBackup:         j.SafetyBackup,
+				DeferredCopyingLevel: j.DeferredCopyingLevel,
+				Storages:             jobStorages,
+				Sources:              sources,
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			jobs = append(jobs, job)
+
+		case "postgresql_basebackup":
+			var sources []psql_basebackup.SourceParams
+
+			for _, src := range j.Sources {
+				var extraKeys []string
+				if len(src.ExtraKeys) > 0 {
+					extraKeys = strings.Split(src.ExtraKeys, " ")
+				}
+
+				sources = append(sources, psql_basebackup.SourceParams{
+					ConnectParams: psql_connect.Params{
+						User:    src.Connect.DBUser,
+						Passwd:  src.Connect.DBPassword,
+						Host:    src.Connect.DBHost,
+						Port:    src.Connect.DBPort,
+						Socket:  src.Connect.Socket,
+						SSLMode: src.Connect.SSLMode,
+					},
+					Name:      src.Name,
+					Gzip:      src.Gzip,
+					IsSlave:   src.IsSlave,
+					ExtraKeys: extraKeys,
+				})
+			}
+
+			job, err := psql_basebackup.Init(psql_basebackup.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,

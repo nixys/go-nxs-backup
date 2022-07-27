@@ -10,6 +10,7 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
+	"nxs-backup/interfaces"
 	. "nxs-backup/modules/storage"
 )
 
@@ -77,9 +78,9 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 
 	if move {
 		err = os.Remove(tmpBackup)
-		appCtx.Log().Infof("Successfully moved file '%s' to %s", source.Name(), dstPath)
+		appCtx.Log().Infof("Successfully moved temp backup to %s", dstPath)
 	} else {
-		appCtx.Log().Infof("Successfully copied file '%s' to %s", source.Name(), dstPath)
+		appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
 	}
 
 	return
@@ -144,4 +145,9 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) e
 
 func (l *Local) Close() error {
 	return nil
+}
+
+func (l *Local) Clone() interfaces.Storage {
+	cl := *l
+	return &cl
 }

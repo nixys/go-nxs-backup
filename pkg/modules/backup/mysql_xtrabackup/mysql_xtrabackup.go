@@ -29,10 +29,11 @@ type job struct {
 	storages             interfaces.Storages
 	sources              []source
 	dumpedObjects        map[string]string
-	databasesList        []string
+	backupsList          []string
 }
 
 type source struct {
+	name      string
 	connect   *sqlx.DB
 	authFile  string
 	targets   []target
@@ -58,6 +59,7 @@ type JobParams struct {
 }
 
 type SourceParams struct {
+	Name          string
 	ConnectParams mysql_connect.Params
 	TargetDBs     []string
 	Excludes      []string
@@ -67,7 +69,7 @@ type SourceParams struct {
 	Prepare       bool
 }
 
-func Init(params JobParams) (*job, error) {
+func Init(jp JobParams) (*job, error) {
 
 	// check if xtrabackup available
 	_, err := exec_cmd.Exec("xtrabackup", "--version")
@@ -75,17 +77,17 @@ func Init(params JobParams) (*job, error) {
 		return nil, fmt.Errorf("failed to check xtrabackup version. Please check that `xtrabackup` installed. Error: %s", err)
 	}
 
-	job := &job{
-		name:                 params.Name,
-		tmpDir:               params.TmpDir,
-		needToMakeBackup:     params.NeedToMakeBackup,
-		safetyBackup:         params.SafetyBackup,
-		deferredCopyingLevel: params.DeferredCopyingLevel,
-		storages:             params.Storages,
+	j := &job{
+		name:                 jp.Name,
+		tmpDir:               jp.TmpDir,
+		needToMakeBackup:     jp.NeedToMakeBackup,
+		safetyBackup:         jp.SafetyBackup,
+		deferredCopyingLevel: jp.DeferredCopyingLevel,
+		storages:             jp.Storages,
 		dumpedObjects:        make(map[string]string),
 	}
 
-	for _, src := range params.Sources {
+	for _, src := range jp.Sources {
 
 		dbConn, authFile, err := mysql_connect.GetConnectAndCnfFile(src.ConnectParams, "xtrabackup")
 		if err != nil {
@@ -106,7 +108,7 @@ func Init(params JobParams) (*job, error) {
 			var targets []target
 			if misc.Contains(src.TargetDBs, "all") || misc.Contains(src.TargetDBs, db) {
 
-				job.databasesList = append(job.databasesList, db)
+				j.backupsList = append(j.backupsList, src.Name+"/"+db)
 
 				var ignoreTables []string
 				compRegEx := regexp.MustCompile(`^(?P<db>` + db + `)\.(?P<table>.*$)`)
@@ -124,7 +126,8 @@ func Init(params JobParams) (*job, error) {
 				})
 
 			}
-			job.sources = append(job.sources, source{
+			j.sources = append(j.sources, source{
+				name:      src.Name,
 				targets:   targets,
 				connect:   dbConn,
 				authFile:  authFile,
@@ -136,7 +139,7 @@ func Init(params JobParams) (*job, error) {
 		}
 	}
 
-	return job, nil
+	return j, nil
 }
 
 func (j *job) GetName() string {
@@ -160,27 +163,27 @@ func (j *job) IsNeedToMakeBackup() bool {
 }
 
 func (j *job) CleanupOldBackups(appCtx *appctx.AppContext) []error {
-	return j.storages.CleanupOldBackups(appCtx, j.databasesList)
+	return j.storages.CleanupOldBackups(appCtx, j.backupsList)
 }
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
 	for _, src := range j.sources {
 
-		for _, target := range src.targets {
+		for _, tgt := range src.targets {
 
-			tmpBackupFullPath := misc.GetFileFullPath(tmpDir, target.dbName, "tar", "", src.gzip)
+			tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name+"_"+tgt.dbName, "tar", "", src.gzip)
 
-			err := createTmpBackup(appCtx, tmpBackupFullPath, src, target)
+			err := createTmpBackup(appCtx, tmpBackupFile, src, tgt)
 			if err != nil {
-				appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFullPath, j.name)
+				appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
 				errs = append(errs, err...)
 				continue
 			} else {
-				appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFullPath, j.name)
+				appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
 			}
 
-			j.dumpedObjects[target.dbName] = tmpBackupFullPath
+			j.dumpedObjects[src.name+"/"+tgt.dbName] = tmpBackupFile
 
 			if j.deferredCopyingLevel <= 0 {
 				errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
@@ -191,6 +194,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 		if j.deferredCopyingLevel == 1 {
 			errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
 			errs = append(errs, errLst...)
+			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
@@ -202,25 +206,16 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 	return
 }
 
-func (j *job) Close() error {
-	for _, src := range j.sources {
-		_ = os.Remove(src.authFile)
-		_ = src.connect.Close()
-	}
-	return nil
-}
-
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, src source, target target) (errs []error) {
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source, target target) (errs []error) {
 
 	var (
-		stderr, stdout bytes.Buffer
-		backupArgs     []string
-		prepareArgs    []string
+		stderr, stdout          bytes.Buffer
+		backupArgs, prepareArgs []string
 	)
 
-	tmpXtrabackupPath := path.Join(path.Dir(tmpBackupPath), "xtrabackup_"+target.dbName+"_"+misc.GetDateTimeNow(""))
+	tmpXtrabackupPath := path.Join(path.Dir(tmpBackupFile), "xtrabackup_"+target.dbName+"_"+misc.GetDateTimeNow(""))
 
-	backupWriter, err := misc.GetFileWriter(tmpBackupPath, src.gzip)
+	backupWriter, err := misc.GetFileWriter(tmpBackupFile, src.gzip)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
 		return append(errs, err)
@@ -321,4 +316,15 @@ func checkXtrabackupStatus(out string) error {
 	}
 
 	return fmt.Errorf("xtrabackup finished not success. Please check result:\n%s", out)
+}
+
+func (j *job) Close() error {
+	for _, src := range j.sources {
+		_ = os.Remove(src.authFile)
+		_ = src.connect.Close()
+	}
+	for _, st := range j.storages {
+		_ = st.Close()
+	}
+	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
+	"nxs-backup/interfaces"
 	. "nxs-backup/modules/storage"
 )
 
@@ -77,7 +78,7 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 		if err != nil {
 			return err
 		}
-		appCtx.Log().Infof("Successfully uploaded '%d' bytes, created object '%s' in bucket %s", n.Size, n.Key, n.Bucket)
+		appCtx.Log().Infof("Successfully created object '%s' in bucket %s", n.Key, n.Bucket)
 	}
 
 	return nil
@@ -162,4 +163,9 @@ func (s *S3) getObjectsPeriodicMap(ofsPartsList []string) (objs map[string][]min
 
 func (s *S3) Close() error {
 	return nil
+}
+
+func (s *S3) Clone() interfaces.Storage {
+	cl := *s
+	return &cl
 }

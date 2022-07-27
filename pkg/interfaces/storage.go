@@ -14,6 +14,7 @@ type Storage interface {
 	CopyFile(appCtx *appctx.AppContext, tmpBackupPath, ofs string, move bool) error
 	ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error
 	Close() error
+	Clone() Storage
 }
 
 type Storages []Storage
@@ -52,11 +53,10 @@ func (s Storages) Delivery(appCtx *appctx.AppContext, dumpedObjects map[string]s
 				errs = append(errs, err)
 			}
 		} else {
-			err = os.Remove(tmpBackupPath)
-			if err != nil {
+			if err = os.Remove(tmpBackupPath); err != nil {
 				errs = append(errs, err)
 			}
-			appCtx.Log().Infof("deleted temp file '%s'", tmpBackupPath)
+			appCtx.Log().Infof("deleted temp backup file '%s'", tmpBackupPath)
 		}
 	}
 	return

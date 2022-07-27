@@ -52,6 +52,7 @@ type cfgJob struct {
 }
 
 type cfgSource struct {
+	Name               string `conf:"name" conf_extraopts:"required"`
 	Connect            cfgConnect
 	SpecialKeys        string   `conf:"special_keys"`
 	Targets            []string `conf:"targets"`

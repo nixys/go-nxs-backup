@@ -12,6 +12,7 @@ import (
 	"github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 
+	"nxs-backup/interfaces"
 	. "nxs-backup/modules/storage"
 )
 
@@ -58,17 +59,17 @@ func Init(params Params) (*NFS, error) {
 	}, nil
 }
 
-func (s *NFS) IsLocal() int { return 0 }
+func (n *NFS) IsLocal() int { return 0 }
 
-func (s *NFS) SetBackupPath(path string) {
-	s.BackupPath = path
+func (n *NFS) SetBackupPath(path string) {
+	n.BackupPath = path
 }
 
-func (s *NFS) SetRetention(r Retention) {
-	s.Retention = r
+func (n *NFS) SetRetention(r Retention) {
+	n.Retention = r
 }
 
-func (s *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
+func (n *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
 
 	source, err := os.Open(tmpBackup)
 	if err != nil {
@@ -76,18 +77,18 @@ func (s *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	}
 	defer source.Close()
 
-	remotePaths := GetDstList(path.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
+	remotePaths := GetDstList(path.Base(tmpBackup), ofs, n.BackupPath, n.Days, n.Weeks, n.Months)
 
 	for _, dstPath := range remotePaths {
 		// Make remote directories
 		dstDir := path.Dir(dstPath)
-		err = s.mkDir(dstDir)
+		err = n.mkDir(dstDir)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
 			return err
 		}
 
-		destination, err := s.Target.OpenFile(dstPath, 0666)
+		destination, err := n.Target.OpenFile(dstPath, 0666)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to create destination file '%s': '%s'", dstDir, err)
 			return err
@@ -99,21 +100,21 @@ func (s *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 			appCtx.Log().Errorf("Unable to make copy '%s': '%s'", dstDir, err)
 			return err
 		}
-		appCtx.Log().Infof("Successfully copied file '%s' to %s", source.Name(), dstPath)
+		appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
 	}
 
 	return nil
 }
 
-func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (n *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
 	var errs []error
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
 		for _, ofsPart := range ofsPartsList {
-			bakDir := path.Join(s.BackupPath, ofsPart, period)
-			files, err := s.Target.ReadDirPlus(bakDir)
+			bakDir := path.Join(n.BackupPath, ofsPart, period)
+			files, err := n.Target.ReadDirPlus(bakDir)
 			if err != nil {
 				if os.IsNotExist(err) {
 					continue
@@ -129,16 +130,16 @@ func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 
 				switch period {
 				case "daily":
-					retentionDate = fileDate.AddDate(0, 0, s.Retention.Days)
+					retentionDate = fileDate.AddDate(0, 0, n.Retention.Days)
 				case "weekly":
-					retentionDate = fileDate.AddDate(0, 0, s.Retention.Weeks*7)
+					retentionDate = fileDate.AddDate(0, 0, n.Retention.Weeks*7)
 				case "monthly":
-					retentionDate = fileDate.AddDate(0, s.Retention.Months, 0)
+					retentionDate = fileDate.AddDate(0, n.Retention.Months, 0)
 				}
 
 				retentionDate = retentionDate.Truncate(24 * time.Hour)
 				if curDate.After(retentionDate) {
-					err = s.Target.Remove(path.Join(bakDir, file.Name()))
+					err = n.Target.Remove(path.Join(bakDir, file.Name()))
 					if err != nil {
 						appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 							file.Name(), bakDir, err)
@@ -158,13 +159,13 @@ func (s *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) err
 	return nil
 }
 
-func (s *NFS) mkDir(dstPath string) error {
+func (n *NFS) mkDir(dstPath string) error {
 
 	dstPath = path.Clean(dstPath)
 	if dstPath == "." || dstPath == "/" {
 		return nil
 	}
-	fi, err := s.getInfo(dstPath)
+	fi, err := n.getInfo(dstPath)
 	if err == nil {
 		if fi.IsDir() {
 			return nil
@@ -175,11 +176,11 @@ func (s *NFS) mkDir(dstPath string) error {
 	}
 
 	dir := path.Dir(dstPath)
-	err = s.mkDir(dir)
+	err = n.mkDir(dir)
 	if err != nil {
 		return err
 	}
-	_, err = s.Target.Mkdir(dstPath, os.ModePerm)
+	_, err = n.Target.Mkdir(dstPath, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -187,12 +188,12 @@ func (s *NFS) mkDir(dstPath string) error {
 	return nil
 }
 
-func (s *NFS) getInfo(dstPath string) (os.FileInfo, error) {
+func (n *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 
 	dir := path.Dir(dstPath)
 	base := path.Base(dstPath)
 
-	files, err := s.Target.ReadDirPlus(dir)
+	files, err := n.Target.ReadDirPlus(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrorFileNotFound
@@ -208,6 +209,11 @@ func (s *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 	return nil, ErrorFileNotFound
 }
 
-func (s *NFS) Close() error {
-	return s.Target.Close()
+func (n *NFS) Close() error {
+	return n.Target.Close()
+}
+
+func (n *NFS) Clone() interfaces.Storage {
+	cl := *n
+	return &cl
 }
