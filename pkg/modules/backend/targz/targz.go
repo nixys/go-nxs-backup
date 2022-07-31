@@ -3,86 +3,64 @@ package targz
 import (
 	"archive/tar"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"nxs-backup/misc"
 )
 
-// TarDirectory Tar directory to tar writer
-func TarDirectory(directory string, tarWriter *tar.Writer, subPath string) error {
+func Archive(src, dst string, gz bool) error {
 
-	files, err := ioutil.ReadDir(directory)
+	fileWriter, err := misc.GetFileWriter(dst, gz)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fileWriter.Close() }()
+
+	tarWriter := tar.NewWriter(fileWriter)
+	defer func() { _ = tarWriter.Close() }()
+
+	info, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
 
-	if len(files) == 0 {
-		dirInfo, err := os.Stat(directory)
-		if err != nil {
-			return err
-		}
-		err = writeTar(directory, tarWriter, dirInfo, subPath)
-		if err != nil {
-			return err
-		}
+	var baseDir string
+	if info.IsDir() {
+		baseDir = filepath.Base(src)
 	}
 
-	for _, file := range files {
-		currentPath := filepath.Join(directory, file.Name())
-		if file.IsDir() {
-			err := TarDirectory(currentPath, tarWriter, subPath)
+	return filepath.Walk(src,
+		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
-		} else {
-			err = writeTar(currentPath, tarWriter, file, subPath)
+			header, err := tar.FileInfoHeader(info, info.Name())
 			if err != nil {
 				return err
 			}
-		}
-	}
 
-	return nil
-}
+			if baseDir != "" {
+				header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, src))
+			}
 
-func writeTar(path string, tarWriter *tar.Writer, fileInfo os.FileInfo, subPath string) error {
-	var link string
-	if fileInfo.Mode()&os.ModeSymlink == os.ModeSymlink {
-		var err error
-		if link, err = os.Readlink(path); err != nil {
+			if err = tarWriter.WriteHeader(header); err != nil {
+				return err
+			}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = file.Close() }()
+
+			_, err = io.Copy(tarWriter, file)
 			return err
-		}
-	}
+		})
 
-	if fileInfo.Mode()&os.ModeSocket == os.ModeSocket {
-		return nil
-	}
-
-	header, err := tar.FileInfoHeader(fileInfo, link)
-	if err != nil {
-		return err
-	}
-	header.Name = path[len(subPath):]
-
-	err = tarWriter.WriteHeader(header)
-	if err != nil {
-		return err
-	}
-
-	if !fileInfo.Mode().IsRegular() {
-		return nil
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(tarWriter, file)
-	if err != nil {
-		return err
-	}
-
-	return err
 }

@@ -1,7 +1,6 @@
 package desc_files
 
 import (
-	"archive/tar"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -178,18 +177,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 }
 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, gZip bool) (err error) {
-	backupWriter, err := misc.GetFileWriter(tmpBackupPath, gZip)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to create tmp file: %s", err)
-		return err
-	}
-	defer backupWriter.Close()
-
-	tarWriter := tar.NewWriter(backupWriter)
-	defer tarWriter.Close()
-
-	err = targz.TarDirectory(ofs, tarWriter, filepath.Dir(ofs))
-	if err != nil {
+	if err := targz.Archive(ofs, tmpBackupPath, gZip); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 	}
 	return

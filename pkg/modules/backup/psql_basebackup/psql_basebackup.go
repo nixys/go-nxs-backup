@@ -1,14 +1,12 @@
 package psql_basebackup
 
 import (
-	"archive/tar"
 	"bytes"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"regexp"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -164,13 +162,6 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	tmpBasebackupPath := path.Join(path.Dir(tmpBackupFile), "pg_basebackup_"+src.name+"_"+misc.GetDateTimeNow(""))
 	defer func() { _ = os.RemoveAll(tmpBasebackupPath) }()
 
-	backupWriter, err := misc.GetFileWriter(tmpBackupFile, src.gzip)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
-		return append(errs, err)
-	}
-	defer func() { _ = backupWriter.Close() }()
-
 	var args []string
 	// define command args
 	// add extra dump cmd options
@@ -186,14 +177,14 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err = cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		appCtx.Log().Errorf("Unable to start pg_basebackup. Error: %s", err)
 		errs = append(errs, err)
 		return
 	}
 	appCtx.Log().Infof("Starting to dump `%s` source", src.name)
 
-	if err = cmd.Wait(); err != nil {
+	if err := cmd.Wait(); err != nil {
 		appCtx.Log().Errorf("Unable to make dump `%s`. Error: %s", src.name, stderr.String())
 		errs = append(errs, err)
 		return
@@ -202,10 +193,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	stdout.Reset()
 	stderr.Reset()
 
-	tarWriter := tar.NewWriter(backupWriter)
-	defer func() { _ = tarWriter.Close() }()
-
-	if err = targz.TarDirectory(tmpBasebackupPath, tarWriter, filepath.Dir(tmpBasebackupPath)); err != nil {
+	if err := targz.Archive(tmpBasebackupPath, tmpBackupFile, src.gzip); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return

@@ -69,14 +69,17 @@ type cfgSource struct {
 }
 
 type cfgConnect struct {
-	AuthFile   string `conf:"auth_file"`
-	DBHost     string `conf:"db_host"`
-	DBPort     string `conf:"db_port"`
-	Socket     string `conf:"socket"`
-	SSLMode    string `conf:"ssl_mode" conf_extraopts:"default=require"`
-	DBUser     string `conf:"db_user"`
-	DBPassword string `conf:"db_password"`
-	PathToConf string `conf:"path_to_conf"`
+	AuthFile       string        `conf:"auth_file"`
+	DBHost         string        `conf:"db_host"`
+	DBPort         string        `conf:"db_port"`
+	Socket         string        `conf:"socket"`
+	SSLMode        string        `conf:"ssl_mode" conf_extraopts:"default=require"`
+	DBUser         string        `conf:"db_user"`
+	DBPassword     string        `conf:"db_password"`
+	PathToConf     string        `conf:"path_to_conf"`
+	MongoRSName    string        `conf:"mongo_replica_set_name"`
+	MongoRSAddr    string        `conf:"mongo_replica_set_address"`
+	ConnectTimeout time.Duration `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
 type cfgStorageConnect struct {
@@ -111,12 +114,12 @@ type s3Params struct {
 }
 
 type sftpParams struct {
-	User           string `conf:"user" conf_extraopts:"required"`
-	Host           string `conf:"host" conf_extraopts:"required"`
-	Port           int    `conf:"port" conf_extraopts:"default=22"`
-	Password       string `conf:"password"`
-	KeyFile        string `conf:"key_file"`
-	ConnectTimeout int    `conf:"connection_timeout" conf_extraopts:"default=10"`
+	User           string        `conf:"user" conf_extraopts:"required"`
+	Host           string        `conf:"host" conf_extraopts:"required"`
+	Port           int           `conf:"port" conf_extraopts:"default=22"`
+	Password       string        `conf:"password"`
+	KeyFile        string        `conf:"key_file"`
+	ConnectTimeout time.Duration `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
 type ftpParams struct {

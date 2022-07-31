@@ -2,6 +2,8 @@ package ctx
 
 import (
 	"fmt"
+	"nxs-backup/modules/backend/mongo_connect"
+	"nxs-backup/modules/backup/mongodump"
 	"sort"
 	"strings"
 
@@ -244,6 +246,49 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			}
 
 			job, err := psql_basebackup.Init(psql_basebackup.JobParams{
+				Name:                 j.JobName,
+				TmpDir:               j.TmpDir,
+				NeedToMakeBackup:     needToMakeBackup,
+				SafetyBackup:         j.SafetyBackup,
+				DeferredCopyingLevel: j.DeferredCopyingLevel,
+				Storages:             jobStorages,
+				Sources:              sources,
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			jobs = append(jobs, job)
+
+		case "mongodb":
+			var sources []mongodump.SourceParams
+
+			for _, src := range j.Sources {
+				var extraKeys []string
+				if len(src.ExtraKeys) > 0 {
+					extraKeys = strings.Split(src.ExtraKeys, " ")
+				}
+
+				sources = append(sources, mongodump.SourceParams{
+					ConnectParams: mongo_connect.Params{
+						User:              src.Connect.DBUser,
+						Passwd:            src.Connect.DBPassword,
+						Host:              src.Connect.DBHost,
+						Port:              src.Connect.DBPort,
+						RSName:            src.Connect.MongoRSName,
+						RSAddr:            src.Connect.MongoRSAddr,
+						ConnectionTimeout: src.Connect.ConnectTimeout,
+					},
+					Name:               src.Name,
+					Gzip:               src.Gzip,
+					ExtraKeys:          extraKeys,
+					TargetDBs:          src.TargetDbs,
+					ExcludeDBs:         src.ExcludeDbs,
+					ExcludeCollections: src.ExcludeCollections,
+				})
+			}
+
+			job, err := mongodump.Init(mongodump.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,

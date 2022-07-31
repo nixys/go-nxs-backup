@@ -1,7 +1,6 @@
 package misc
 
 import (
-	"compress/gzip"
 	"fmt"
 	"io"
 	"math/rand"
@@ -10,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	gzip "github.com/klauspost/pgzip"
 )
 
 const (

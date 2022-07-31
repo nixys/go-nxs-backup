@@ -113,8 +113,7 @@ func Init(jp JobParams) (*job, error) {
 				compRegEx := regexp.MustCompile(`^(?P<db>` + db + `)\.(?P<table>.*$)`)
 				for _, excl := range src.Excludes {
 					if match := compRegEx.FindStringSubmatch(excl); len(match) > 0 {
-						exclTable := "--exclude-table=" + match[2]
-						ignoreTables = append(ignoreTables, exclTable)
+						ignoreTables = append(ignoreTables, "--exclude-table="+match[2])
 					}
 				}
 				targets = append(targets, target{
@@ -208,7 +207,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, src source
 		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
 		return append(errs, err)
 	}
-	defer backupWriter.Close()
+	defer func() { _ = backupWriter.Close }()
 
 	var args []string
 	// define command args

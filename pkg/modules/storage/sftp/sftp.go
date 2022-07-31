@@ -29,7 +29,7 @@ type Params struct {
 	Port           int
 	Password       string
 	KeyFile        string
-	ConnectTimeout int
+	ConnectTimeout time.Duration
 }
 
 func Init(params Params) (*SFTP, error) {
@@ -38,7 +38,7 @@ func Init(params Params) (*SFTP, error) {
 		User:            params.User,
 		Auth:            []ssh.AuthMethod{},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Duration(params.ConnectTimeout) * time.Second,
+		Timeout:         params.ConnectTimeout * time.Second,
 		ClientVersion:   "SSH-2.0-" + "nxs-backup/" + misc.VERSION,
 	}
 

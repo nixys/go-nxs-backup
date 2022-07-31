@@ -1,19 +1,23 @@
-package mysql
+package mongodump
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"nxs-backup/modules/backend/mongo_connect"
+	"nxs-backup/modules/backend/targz"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 
-	"github.com/jmoiron/sqlx"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
-	"nxs-backup/modules/backend/mysql_connect"
 )
 
 type job struct {
@@ -30,17 +34,16 @@ type job struct {
 
 type source struct {
 	name      string
-	connect   *sqlx.DB
-	authFile  string
+	connect   *mongo.Client
+	dsn       string
 	targets   []target
 	extraKeys []string
 	gzip      bool
-	isSlave   bool
 }
 
 type target struct {
-	dbName       string
-	ignoreTables []string
+	dbName            string
+	ignoreCollections []string
 }
 
 type JobParams struct {
@@ -54,21 +57,21 @@ type JobParams struct {
 }
 
 type SourceParams struct {
-	Name          string
-	ConnectParams mysql_connect.Params
-	TargetDBs     []string
-	Excludes      []string
-	ExtraKeys     []string
-	Gzip          bool
-	IsSlave       bool
+	Name               string
+	ConnectParams      mongo_connect.Params
+	TargetDBs          []string
+	ExcludeDBs         []string
+	ExcludeCollections []string
+	ExtraKeys          []string
+	Gzip               bool
 }
 
 func Init(jp JobParams) (*job, error) {
 
 	// check if mysqldump available
-	_, err := exec_cmd.Exec("mysqldump", "--version")
+	_, err := exec_cmd.Exec("mongodump", "--version")
 	if err != nil {
-		return nil, fmt.Errorf("Job `%s` init failed. Failed to check mysqldump version. Please check that `mysqldump` installed. Error: %s ", jp.Name, err)
+		return nil, fmt.Errorf("Job `%s` init failed. Failed to check mongodump version. Please check that `mongodump` installed. Error: %s ", jp.Name, err)
 	}
 
 	j := &job{
@@ -83,20 +86,20 @@ func Init(jp JobParams) (*job, error) {
 
 	for _, src := range jp.Sources {
 
-		dbConn, authFile, err := mysql_connect.GetConnectAndCnfFile(src.ConnectParams, "mysqldump")
+		conn, dsn, err := mongo_connect.GetConnectAndDSN(src.ConnectParams)
 		if err != nil {
-			return nil, fmt.Errorf("Job `%s` init failed. MySQL connect error: %s ", jp.Name, err)
+			return nil, fmt.Errorf("Job `%s` init failed. MongoDB connect error: %s ", jp.Name, err)
 		}
 
 		// fetch all databases
 		var databases []string
-		err = dbConn.Select(&databases, "show databases")
+		databases, err = conn.ListDatabaseNames(context.TODO(), bson.D{})
 		if err != nil {
 			return nil, fmt.Errorf("Job `%s` init failed. Unable to list databases. Error: %s ", jp.Name, err)
 		}
 
 		for _, db := range databases {
-			if misc.Contains(src.Excludes, db) {
+			if misc.Contains(src.ExcludeDBs, db) {
 				continue
 			}
 			var targets []target
@@ -104,26 +107,26 @@ func Init(jp JobParams) (*job, error) {
 
 				j.backupsList = append(j.backupsList, src.Name+"/"+db)
 
-				var ignoreTables []string
-				for _, excl := range src.Excludes {
-					if matched, _ := regexp.MatchString(`^`+db+`\..*$`, excl); matched {
-						ignoreTables = append(ignoreTables, "--ignore-table="+excl)
+				var ignoreCollections []string
+				compRegEx := regexp.MustCompile(`^(?P<db>` + db + `)\.(?P<collection>.*$)`)
+				for _, excl := range src.ExcludeCollections {
+					if match := compRegEx.FindStringSubmatch(excl); len(match) > 0 {
+						ignoreCollections = append(ignoreCollections, "--excludeCollection="+match[2])
 					}
 				}
 				targets = append(targets, target{
-					dbName:       db,
-					ignoreTables: ignoreTables,
+					dbName:            db,
+					ignoreCollections: ignoreCollections,
 				})
 
 			}
 			j.sources = append(j.sources, source{
 				name:      src.Name,
 				targets:   targets,
-				connect:   dbConn,
-				authFile:  authFile,
+				connect:   conn,
+				dsn:       dsn,
 				extraKeys: src.ExtraKeys,
 				gzip:      src.Gzip,
-				isSlave:   src.IsSlave,
 			})
 		}
 	}
@@ -161,7 +164,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 		for _, tgt := range src.targets {
 
-			tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name+"_"+tgt.dbName, "sql", "", src.gzip)
+			tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name+"_"+tgt.dbName, "tar", "", src.gzip)
 
 			err := createTmpBackup(appCtx, tmpBackupFile, src, tgt)
 			if err != nil {
@@ -197,65 +200,53 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source, target target) (errs []error) {
 
-	backupWriter, err := misc.GetFileWriter(tmpBackupFile, src.gzip)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
-		return append(errs, err)
-	}
-	defer backupWriter.Close()
-
-	if src.isSlave {
-		_, err := src.connect.Exec("STOP SLAVE")
-		if err != nil {
-			appCtx.Log().Errorf("Unable to stop slave. Error: %s", err)
-			errs = append(errs, err)
-			return
-		}
-		appCtx.Log().Infof("Slave stopped")
-		defer func() {
-			_, err = src.connect.Exec("START SLAVE")
-			if err != nil {
-				appCtx.Log().Errorf("Unable to start slave. Error: %s", err)
-				errs = append(errs, err)
-			} else {
-				appCtx.Log().Infof("Slave started")
-			}
-		}()
-	}
+	tmpMongodumpPath := path.Join(path.Dir(tmpBackupFile), "mongodump_"+src.name+"_"+misc.GetDateTimeNow(""))
+	defer func() { _ = os.RemoveAll(tmpMongodumpPath) }()
 
 	var args []string
-	// define command args with auth options
-	args = append(args, "--defaults-extra-file="+src.authFile)
-	// add tables exclude
-	if len(target.ignoreTables) > 0 {
-		args = append(args, target.ignoreTables...)
+	// define command args
+	// auth url
+	args = append(args, "--uri="+src.dsn)
+	args = append(args, "--authenticationDatabase=admin")
+	// add db name
+	args = append(args, "--db="+target.dbName)
+	// add collections exclude
+	if len(target.ignoreCollections) > 0 {
+		args = append(args, target.ignoreCollections...)
 	}
 	// add extra dump cmd options
 	if len(src.extraKeys) > 0 {
 		args = append(args, src.extraKeys...)
 	}
-	// add db name
-	args = append(args, target.dbName)
+	// set output
+	args = append(args, "--out="+tmpMongodumpPath)
 
-	var stderr bytes.Buffer
-	cmd := exec.Command("mysqldump", args...)
-	cmd.Stdout = backupWriter
+	var stderr, stdout bytes.Buffer
+	cmd := exec.Command("mongodump", args...)
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err = cmd.Start(); err != nil {
-		appCtx.Log().Errorf("Unable to start mysqldump. Error: %s", err)
+	if err := cmd.Start(); err != nil {
+		appCtx.Log().Errorf("Unable to start mongodump. Error: %s", err)
 		errs = append(errs, err)
 		return
 	}
 	appCtx.Log().Infof("Starting a `%s` dump", target.dbName)
 
-	if err = cmd.Wait(); err != nil {
+	if err := cmd.Wait(); err != nil {
 		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, stderr.String())
 		errs = append(errs, err)
 		return
 	}
 
+	stdout.Reset()
 	stderr.Reset()
+
+	if err := targz.Archive(tmpMongodumpPath, tmpBackupFile, src.gzip); err != nil {
+		appCtx.Log().Errorf("Unable to make tar: %s", err)
+		errs = append(errs, err)
+		return
+	}
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
 
@@ -264,8 +255,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 
 func (j *job) Close() error {
 	for _, src := range j.sources {
-		_ = os.Remove(src.authFile)
-		_ = src.connect.Close()
+		_ = src.connect.Disconnect(context.TODO())
 	}
 	for _, st := range j.storages {
 		_ = st.Close()

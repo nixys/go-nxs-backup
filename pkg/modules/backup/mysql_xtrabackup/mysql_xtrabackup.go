@@ -1,13 +1,11 @@
 package mysql_xtrabackup
 
 import (
-	"archive/tar"
 	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"regexp"
 
 	"github.com/jmoiron/sqlx"
@@ -116,8 +114,7 @@ func Init(jp JobParams) (*job, error) {
 					if matched, _ := regexp.MatchString(`^\^`+db+`\[\.\].*$`, excl); matched {
 						ignoreTables = append(ignoreTables, "--tables-exclude="+excl)
 					} else if match := compRegEx.FindStringSubmatch(excl); len(match) > 0 {
-						exclTable := "--tables-exclude=^" + db + "[.]" + match[2]
-						ignoreTables = append(ignoreTables, exclTable)
+						ignoreTables = append(ignoreTables, "--tables-exclude=^"+db+"[.]"+match[2])
 					}
 				}
 				targets = append(targets, target{
@@ -214,13 +211,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	)
 
 	tmpXtrabackupPath := path.Join(path.Dir(tmpBackupFile), "xtrabackup_"+target.dbName+"_"+misc.GetDateTimeNow(""))
-
-	backupWriter, err := misc.GetFileWriter(tmpBackupFile, src.gzip)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
-		return append(errs, err)
-	}
-	defer func() { _ = backupWriter.Close() }()
+	defer func() { _ = os.RemoveAll(tmpXtrabackupPath) }()
 
 	// define commands args with auth options
 	backupArgs = append(backupArgs, "--defaults-file="+src.authFile)
@@ -243,21 +234,21 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err = cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		appCtx.Log().Errorf("Unable to start xtrabackup. Error: %s", err)
 		errs = append(errs, err)
 		return
 	}
 	appCtx.Log().Infof("Starting `%s` dump", target.dbName)
 
-	if err = cmd.Wait(); err != nil {
+	if err := cmd.Wait(); err != nil {
 		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, err)
 		appCtx.Log().Error(stderr)
 		errs = append(errs, err)
 		return
 	}
 
-	if err = checkXtrabackupStatus(stderr.String()); err != nil {
+	if err := checkXtrabackupStatus(stderr.String()); err != nil {
 		_ = os.WriteFile("/home/r.andreev/Projects/NxsProjects/nxs-backup/tmp/test/file.log", stderr.Bytes(), 0644)
 		appCtx.Log().Errorf("Dump create fail. Error: %s", err)
 		errs = append(errs, err)
@@ -274,14 +265,14 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 
-		if err = cmd.Run(); err != nil {
+		if err := cmd.Run(); err != nil {
 			appCtx.Log().Errorf("Unable to run xtrabackup. Error: %s", err)
 			appCtx.Log().Error(stderr)
 			errs = append(errs, err)
 			return
 		}
 
-		if err = checkXtrabackupStatus(stderr.String()); err != nil {
+		if err := checkXtrabackupStatus(stderr.String()); err != nil {
 			appCtx.Log().Errorf("Xtrabackup prepare fail. Error: %s", err)
 			errs = append(errs, err)
 			return
@@ -291,21 +282,13 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		stderr.Reset()
 	}
 
-	tarWriter := tar.NewWriter(backupWriter)
-	defer func() { _ = tarWriter.Close() }()
-
-	err = targz.TarDirectory(tmpXtrabackupPath, tarWriter, filepath.Dir(tmpXtrabackupPath))
-	if err != nil {
+	if err := targz.Archive(tmpXtrabackupPath, tmpBackupFile, src.gzip); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return
 	}
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
-
-	if err = os.RemoveAll(tmpXtrabackupPath); err != nil {
-		appCtx.Log().Warnf("Failed to delete tmp xtrabackup dump directory: %s", err)
-	}
 
 	return
 }
