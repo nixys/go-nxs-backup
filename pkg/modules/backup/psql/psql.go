@@ -13,7 +13,8 @@ import (
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
-	"nxs-backup/modules/backend/psql_connect"
+	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/connectors/psql_connect"
 )
 
 type job struct {
@@ -202,7 +203,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, src source, target target) (errs []error) {
 
-	backupWriter, err := misc.GetFileWriter(tmpBackupPath, src.gzip)
+	backupWriter, err := targz.GetFileWriter(tmpBackupPath, src.gzip)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
 		return append(errs, err)
@@ -240,8 +241,6 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, src source
 		errs = append(errs, err)
 		return
 	}
-
-	stderr.Reset()
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
 

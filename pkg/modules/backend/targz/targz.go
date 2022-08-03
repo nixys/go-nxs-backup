@@ -7,12 +7,45 @@ import (
 	"path/filepath"
 	"strings"
 
-	"nxs-backup/misc"
+	"github.com/klauspost/pgzip"
 )
+
+func GetFileWriter(filePath string, gZip bool) (io.WriteCloser, error) {
+	file, err := os.Create(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var writer io.WriteCloser
+	if gZip {
+		writer = pgzip.NewWriter(file)
+	} else {
+		writer = file
+	}
+
+	return writer, nil
+}
+
+func GZip(src, dst string) error {
+	fileWriter, err := GetFileWriter(dst, true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fileWriter.Close() }()
+
+	file, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	_, err = io.Copy(fileWriter, file)
+	return err
+}
 
 func Archive(src, dst string, gz bool) error {
 
-	fileWriter, err := misc.GetFileWriter(dst, gz)
+	fileWriter, err := GetFileWriter(dst, gz)
 	if err != nil {
 		return err
 	}

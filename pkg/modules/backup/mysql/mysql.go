@@ -13,7 +13,8 @@ import (
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
-	"nxs-backup/modules/backend/mysql_connect"
+	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/connectors/mysql_connect"
 )
 
 type job struct {
@@ -197,7 +198,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source, target target) (errs []error) {
 
-	backupWriter, err := misc.GetFileWriter(tmpBackupFile, src.gzip)
+	backupWriter, err := targz.GetFileWriter(tmpBackupFile, src.gzip)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
 		return append(errs, err)
@@ -254,8 +255,6 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		errs = append(errs, err)
 		return
 	}
-
-	stderr.Reset()
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
 

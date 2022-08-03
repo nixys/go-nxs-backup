@@ -2,15 +2,11 @@ package misc
 
 import (
 	"fmt"
-	"io"
 	"math/rand"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	gzip "github.com/klauspost/pgzip"
 )
 
 const (
@@ -118,22 +114,6 @@ func Contains(s []string, str string) bool {
 	}
 
 	return false
-}
-
-func GetFileWriter(filePath string, gZip bool) (io.WriteCloser, error) {
-	file, err := os.Create(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	var writer io.WriteCloser
-	if gZip {
-		writer = gzip.NewWriter(file)
-	} else {
-		writer = file
-	}
-
-	return writer, nil
 }
 
 // RandString generates random string

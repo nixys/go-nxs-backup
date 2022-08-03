@@ -14,8 +14,8 @@ import (
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
-	"nxs-backup/modules/backend/mysql_connect"
 	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/connectors/mysql_connect"
 )
 
 type job struct {
@@ -211,7 +211,6 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	)
 
 	tmpXtrabackupPath := path.Join(path.Dir(tmpBackupFile), "xtrabackup_"+target.dbName+"_"+misc.GetDateTimeNow(""))
-	defer func() { _ = os.RemoveAll(tmpXtrabackupPath) }()
 
 	// define commands args with auth options
 	backupArgs = append(backupArgs, "--defaults-file="+src.authFile)
@@ -277,9 +276,6 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 			errs = append(errs, err)
 			return
 		}
-
-		stdout.Reset()
-		stderr.Reset()
 	}
 
 	if err := targz.Archive(tmpXtrabackupPath, tmpBackupFile, src.gzip); err != nil {
@@ -287,6 +283,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		errs = append(errs, err)
 		return
 	}
+	_ = os.RemoveAll(tmpXtrabackupPath)
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
 

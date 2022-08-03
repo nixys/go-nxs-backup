@@ -4,20 +4,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"nxs-backup/modules/backend/mongo_connect"
-	"nxs-backup/modules/backend/targz"
 	"os"
 	"os/exec"
 	"path"
 	"regexp"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
+	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/connectors/mongo_connect"
 )
 
 type job struct {
@@ -201,7 +201,6 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source, target target) (errs []error) {
 
 	tmpMongodumpPath := path.Join(path.Dir(tmpBackupFile), "mongodump_"+src.name+"_"+misc.GetDateTimeNow(""))
-	defer func() { _ = os.RemoveAll(tmpMongodumpPath) }()
 
 	var args []string
 	// define command args
@@ -239,14 +238,12 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		return
 	}
 
-	stdout.Reset()
-	stderr.Reset()
-
 	if err := targz.Archive(tmpMongodumpPath, tmpBackupFile, src.gzip); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return
 	}
+	_ = os.RemoveAll(tmpMongodumpPath)
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
 

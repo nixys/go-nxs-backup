@@ -2,15 +2,17 @@ package ctx
 
 import (
 	"fmt"
-	"nxs-backup/modules/backend/mongo_connect"
 	"nxs-backup/modules/backup/mongodump"
+	"nxs-backup/modules/backup/redis"
+	"nxs-backup/modules/connectors/mongo_connect"
+	"nxs-backup/modules/connectors/mysql_connect"
+	"nxs-backup/modules/connectors/psql_connect"
+	"nxs-backup/modules/connectors/redis_connect"
 	"sort"
 	"strings"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/mysql_connect"
-	"nxs-backup/modules/backend/psql_connect"
 	"nxs-backup/modules/backup/desc_files"
 	"nxs-backup/modules/backup/mysql"
 	"nxs-backup/modules/backup/mysql_xtrabackup"
@@ -289,6 +291,37 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			}
 
 			job, err := mongodump.Init(mongodump.JobParams{
+				Name:                 j.JobName,
+				TmpDir:               j.TmpDir,
+				NeedToMakeBackup:     needToMakeBackup,
+				SafetyBackup:         j.SafetyBackup,
+				DeferredCopyingLevel: j.DeferredCopyingLevel,
+				Storages:             jobStorages,
+				Sources:              sources,
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			jobs = append(jobs, job)
+
+		case "redis":
+			var sources []redis.SourceParams
+
+			for _, src := range j.Sources {
+				sources = append(sources, redis.SourceParams{
+					ConnectParams: redis_connect.Params{
+						Passwd: src.Connect.DBPassword,
+						Host:   src.Connect.DBHost,
+						Port:   src.Connect.DBPort,
+						Socket: src.Connect.Socket,
+					},
+					Name: src.Name,
+					Gzip: src.Gzip,
+				})
+			}
+
+			job, err := redis.Init(redis.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,
