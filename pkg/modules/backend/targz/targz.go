@@ -43,7 +43,7 @@ func GZip(src, dst string) error {
 	return err
 }
 
-func Archive(src, dst string, gz bool) error {
+func Tar(src, dst string, gz, saveAbsPath bool) error {
 
 	fileWriter, err := GetFileWriter(dst, gz)
 	if err != nil {
@@ -74,7 +74,9 @@ func Archive(src, dst string, gz bool) error {
 				return err
 			}
 
-			if baseDir != "" {
+			if saveAbsPath {
+				header.Name = path
+			} else if baseDir != "" {
 				header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, src))
 			}
 
@@ -95,5 +97,4 @@ func Archive(src, dst string, gz bool) error {
 			_, err = io.Copy(tarWriter, file)
 			return err
 		})
-
 }

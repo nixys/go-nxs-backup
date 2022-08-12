@@ -56,9 +56,9 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	}
 	for _, job := range c.Jobs {
 		switch job.GetType() {
-		case "files":
+		case "desc_files", "inc_files":
 			c.FilesJobs = append(c.FilesJobs, job)
-		case "databases":
+		case "mysql", "mysql_xtrabackup", "postgresql", "postgresql_basebackup", "mongodb", "redis":
 			c.DBsJobs = append(c.DBsJobs, job)
 		case "external":
 			c.ExternalJobs = append(c.ExternalJobs, job)

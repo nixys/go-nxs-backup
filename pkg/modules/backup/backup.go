@@ -13,18 +13,23 @@ import (
 
 func Perform(appCtx *appctx.AppContext, job interfaces.Job) (errs []error) {
 
+	if job.GetStoragesCount() == 0 {
+		appCtx.Log().Warn("There are no configured storages for job.")
+		return
+	}
+
 	if !job.IsBackupSafety() {
-		errs = job.CleanupOldBackups(appCtx)
+		errs = job.DeleteOldBackups(appCtx)
 	} else {
 		defer func() {
-			err := job.CleanupOldBackups(appCtx)
+			err := job.DeleteOldBackups(appCtx)
 			if err != nil {
 				errs = append(errs, err...)
 			}
 		}()
 	}
 
-	if !job.IsNeedToMakeBackup() {
+	if !job.NeedToMakeBackup() {
 		appCtx.Log().Infof("According to the backup plan today new backups are not created for job %s", job.GetName())
 		return
 	}

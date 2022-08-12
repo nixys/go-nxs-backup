@@ -21,13 +21,14 @@ type job struct {
 	storages             interfaces.Storages
 	sources              []source
 	dumpedObjects        map[string]string
-	backupsList          []string
+	dumpPathsList        []string
 }
 
 type source struct {
-	name    string
-	targets []map[string]string
-	gzip    bool
+	name        string
+	targets     []map[string]string
+	gzip        bool
+	saveAbsPath bool
 }
 
 type JobParams struct {
@@ -41,10 +42,11 @@ type JobParams struct {
 }
 
 type SourceParams struct {
-	Name     string
-	Gzip     bool
-	Targets  []string
-	Excludes []string
+	Name        string
+	Targets     []string
+	Excludes    []string
+	Gzip        bool
+	SaveAbsPath bool
 }
 
 func Init(jp JobParams) (*job, error) {
@@ -92,7 +94,7 @@ func Init(jp JobParams) (*job, error) {
 				if !excluded {
 					ofsPart := misc.GetOfsPart(targetPattern, ofs)
 					targetOfsMap[ofsPart] = ofs
-					j.backupsList = append(j.backupsList, src.Name+"/"+ofsPart)
+					j.dumpPathsList = append(j.dumpPathsList, src.Name+"/"+ofsPart)
 				}
 			}
 
@@ -100,9 +102,10 @@ func Init(jp JobParams) (*job, error) {
 		}
 
 		j.sources = append(j.sources, source{
-			name:    src.Name,
-			targets: targets,
-			gzip:    src.Gzip,
+			name:        src.Name,
+			targets:     targets,
+			gzip:        src.Gzip,
+			saveAbsPath: src.SaveAbsPath,
 		})
 	}
 
@@ -118,19 +121,35 @@ func (j *job) GetTempDir() string {
 }
 
 func (j *job) GetType() string {
-	return "files"
+	return "desc_files"
+}
+
+func (j *job) GetTargetOfsList() []string {
+	return j.dumpPathsList
+}
+
+func (j *job) GetStoragesCount() int {
+	return len(j.storages)
+}
+
+func (j *job) GetDumpedObjects() map[string]string {
+	return j.dumpedObjects
 }
 
 func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) CleanupOldBackups(appCtx *appctx.AppContext) []error {
-	return j.storages.CleanupOldBackups(appCtx, j.backupsList)
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext) []error {
+	return j.storages.DeleteOldBackups(appCtx, j)
 }
 
-func (j *job) IsNeedToMakeBackup() bool {
+func (j *job) NeedToMakeBackup() bool {
 	return j.needToMakeBackup
+}
+
+func (j *job) NeedToUpdateIncMeta() bool {
+	return false
 }
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
@@ -155,21 +174,21 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 			}
 
 			if j.deferredCopyingLevel <= 0 {
-				errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+				errLst := j.storages.Delivery(appCtx, j)
 				errs = append(errs, errLst...)
 				j.dumpedObjects = make(map[string]string)
 			}
 		}
 
 		if j.deferredCopyingLevel == 1 {
-			errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+			errLst := j.storages.Delivery(appCtx, j)
 			errs = append(errs, errLst...)
 			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 2 {
-		errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+		errLst := j.storages.Delivery(appCtx, j)
 		errs = append(errs, errLst...)
 	}
 
@@ -177,7 +196,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 }
 
 func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, gZip bool) (err error) {
-	if err := targz.Archive(ofs, tmpBackupPath, gZip); err != nil {
+	if err := targz.Tar(ofs, tmpBackupPath, gZip, true); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 	}
 	return

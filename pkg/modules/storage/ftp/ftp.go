@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"strings"
@@ -87,7 +88,7 @@ func (f *FTP) SetRetention(r Retention) {
 	f.Retention = r
 }
 
-func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
+func (f *FTP) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
 
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
@@ -103,7 +104,7 @@ func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	//	return err
 	//}
 
-	remotePaths := GetDstList(path.Base(tmpBackup), ofs, f.BackupPath, f.Days, f.Weeks, f.Months)
+	remotePaths := GetDescBackupDstList(path.Base(tmpBackup), ofs, f.BackupPath, f.Retention)
 
 	for _, dstPath := range remotePaths {
 		// Make remote directories
@@ -137,7 +138,17 @@ func (f *FTP) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	return nil
 }
 
-func (f *FTP) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (f *FTP) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (f *FTP) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (f *FTP) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -235,6 +246,11 @@ func (f *FTP) getInfo(dstPath string) (os.FileInfo, error) {
 		}
 	}
 	return nil, ErrorObjectNotFound
+}
+
+func (f *FTP) GetFile(ofsPath string) (fs.File, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (f *FTP) Close() error {

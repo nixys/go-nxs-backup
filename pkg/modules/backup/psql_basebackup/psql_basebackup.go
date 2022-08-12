@@ -27,7 +27,7 @@ type job struct {
 	storages             interfaces.Storages
 	sources              []source
 	dumpedObjects        map[string]string
-	backupsList          []string
+	dumpPathsList        []string
 }
 
 type source struct {
@@ -87,7 +87,7 @@ func Init(jp JobParams) (*job, error) {
 		}
 		_ = conn.Close()
 
-		j.backupsList = append(j.backupsList, src.Name)
+		j.dumpPathsList = append(j.dumpPathsList, src.Name)
 		j.sources = append(j.sources, source{
 			name:      src.Name,
 			extraKeys: src.ExtraKeys,
@@ -109,19 +109,35 @@ func (j *job) GetTempDir() string {
 }
 
 func (j *job) GetType() string {
-	return "databases"
+	return "postgresql_basebackup"
+}
+
+func (j *job) GetTargetOfsList() []string {
+	return j.dumpPathsList
+}
+
+func (j *job) GetStoragesCount() int {
+	return len(j.storages)
+}
+
+func (j *job) GetDumpedObjects() map[string]string {
+	return j.dumpedObjects
 }
 
 func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) IsNeedToMakeBackup() bool {
+func (j *job) NeedToMakeBackup() bool {
 	return j.needToMakeBackup
 }
 
-func (j *job) CleanupOldBackups(appCtx *appctx.AppContext) []error {
-	return j.storages.CleanupOldBackups(appCtx, j.backupsList)
+func (j *job) NeedToUpdateIncMeta() bool {
+	return false
+}
+
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext) []error {
+	return j.storages.DeleteOldBackups(appCtx, j)
 }
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
@@ -141,14 +157,14 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 		j.dumpedObjects[src.name] = tmpBackupFile
 
 		if j.deferredCopyingLevel <= 0 {
-			errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+			errLst := j.storages.Delivery(appCtx, j)
 			errs = append(errs, errLst...)
 			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+		errLst := j.storages.Delivery(appCtx, j)
 		errs = append(errs, errLst...)
 	}
 
@@ -189,7 +205,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		return
 	}
 
-	if err := targz.Archive(tmpBasebackupPath, tmpBackupFile, src.gzip); err != nil {
+	if err := targz.Tar(tmpBasebackupPath, tmpBackupFile, src.gzip, false); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return

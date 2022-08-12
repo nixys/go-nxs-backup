@@ -3,6 +3,7 @@ package webdav
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"time"
@@ -56,11 +57,7 @@ func (wd *WebDav) SetRetention(r Retention) {
 	wd.Retention = r
 }
 
-func (wd *WebDav) ListFiles() (err error) {
-	return
-}
-
-func (wd *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
+func (wd *WebDav) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
@@ -68,7 +65,7 @@ func (wd *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ b
 	}
 	defer srcFile.Close()
 
-	dstPath, links, err := GetDstAndLinks(path.Base(tmpBackup), ofs, wd.BackupPath, wd.Days, wd.Weeks, wd.Months)
+	dstPath, links, err := GetDescBackupDstAndLinks(path.Base(tmpBackup), ofs, wd.BackupPath, wd.Retention)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
 		return err
@@ -106,7 +103,17 @@ func (wd *WebDav) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ b
 	return nil
 }
 
-func (wd *WebDav) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (wd *WebDav) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (wd *WebDav) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (wd *WebDav) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -207,6 +214,11 @@ func (wd *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
 		}
 	}
 	return nil, ErrorFileNotFound
+}
+
+func (wd *WebDav) GetFile(ofsPath string) (fs.File, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (wd *WebDav) Close() error {

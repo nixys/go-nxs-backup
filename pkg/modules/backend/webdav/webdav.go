@@ -30,7 +30,7 @@ type Params struct {
 	ConnectionTimeout time.Duration
 }
 
-type QuotaResp struct {
+type quotaResp struct {
 	Responses []struct {
 		Href  string `xml:"href"`
 		Props []struct {
@@ -40,7 +40,7 @@ type QuotaResp struct {
 	} `xml:"response"`
 }
 
-type ListResp struct {
+type listResp struct {
 	Responses []struct {
 		Href  string `xml:"href"`
 		Props []struct {
@@ -108,7 +108,7 @@ func (w *Client) GetQuotaAvailableBytes() (int, error) {
 		return 0, fmt.Errorf("%s(%d): can't get strage quota", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode)
 	}
 
-	var r QuotaResp
+	var r quotaResp
 	decoder := xml.NewDecoder(res.Body)
 	err = decoder.Decode(&r)
 	if err != nil {
@@ -146,7 +146,7 @@ func (w *Client) Ls(path string) ([]os.FileInfo, error) {
 		return nil, fmt.Errorf("%s(%d): can't get things in %s", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
 	}
 
-	var r ListResp
+	var r listResp
 	decoder := xml.NewDecoder(res.Body)
 	decoder.Decode(&r)
 	if len(r.Responses) == 0 {

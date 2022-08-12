@@ -26,7 +26,7 @@ type job struct {
 	storages             interfaces.Storages
 	sources              []source
 	dumpedObjects        map[string]string
-	backupsList          []string
+	dumpPathsList        []string
 }
 
 type source struct {
@@ -103,7 +103,7 @@ func Init(jp JobParams) (*job, error) {
 			var targets []target
 			if misc.Contains(src.TargetDBs, "all") || misc.Contains(src.TargetDBs, db) {
 
-				j.backupsList = append(j.backupsList, src.Name+"/"+db)
+				j.dumpPathsList = append(j.dumpPathsList, src.Name+"/"+db)
 
 				var ignoreTables []string
 				for _, excl := range src.Excludes {
@@ -141,19 +141,35 @@ func (j *job) GetTempDir() string {
 }
 
 func (j *job) GetType() string {
-	return "databases"
+	return "mysql"
+}
+
+func (j *job) GetTargetOfsList() []string {
+	return j.dumpPathsList
+}
+
+func (j *job) GetStoragesCount() int {
+	return len(j.storages)
+}
+
+func (j *job) GetDumpedObjects() map[string]string {
+	return j.dumpedObjects
 }
 
 func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) IsNeedToMakeBackup() bool {
+func (j *job) NeedToMakeBackup() bool {
 	return j.needToMakeBackup
 }
 
-func (j *job) CleanupOldBackups(appCtx *appctx.AppContext) []error {
-	return j.storages.CleanupOldBackups(appCtx, j.backupsList)
+func (j *job) NeedToUpdateIncMeta() bool {
+	return false
+}
+
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext) []error {
+	return j.storages.DeleteOldBackups(appCtx, j)
 }
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
@@ -176,20 +192,20 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 			j.dumpedObjects[src.name+"/"+tgt.dbName] = tmpBackupFile
 
 			if j.deferredCopyingLevel <= 0 {
-				errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+				errLst := j.storages.Delivery(appCtx, j)
 				errs = append(errs, errLst...)
 				j.dumpedObjects = make(map[string]string)
 			}
 		}
 		if j.deferredCopyingLevel == 1 {
-			errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+			errLst := j.storages.Delivery(appCtx, j)
 			errs = append(errs, errLst...)
 			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 2 {
-		errLst := j.storages.Delivery(appCtx, j.dumpedObjects)
+		errLst := j.storages.Delivery(appCtx, j)
 		errs = append(errs, errLst...)
 	}
 

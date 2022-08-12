@@ -6,10 +6,14 @@ type Job interface {
 	GetName() string
 	GetTempDir() string
 	GetType() string
+	GetTargetOfsList() []string
+	GetStoragesCount() int
+	GetDumpedObjects() map[string]string
 	IsBackupSafety() bool
-	IsNeedToMakeBackup() bool
+	NeedToMakeBackup() bool
+	NeedToUpdateIncMeta() bool
 	DoBackup(ctx *appctx.AppContext, tmpDir string) []error
-	CleanupOldBackups(ctx *appctx.AppContext) []error
+	DeleteOldBackups(ctx *appctx.AppContext) []error
 	Close() error
 }
 

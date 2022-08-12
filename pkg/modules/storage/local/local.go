@@ -3,9 +3,11 @@ package local
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -33,7 +35,11 @@ func (l *Local) SetRetention(r Retention) {
 	l.Retention = r
 }
 
-func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move bool) (err error) {
+func (l *Local) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) (err error) {
+	var (
+		dstPath string
+		links   map[string]string
+	)
 
 	source, err := os.Open(tmpBackup)
 	if err != nil {
@@ -41,7 +47,7 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 	}
 	defer source.Close()
 
-	dstPath, links, err := GetDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, l.Days, l.Weeks, l.Months)
+	dstPath, links, err = GetDescBackupDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, l.Retention)
 	if err != nil {
 		return
 	}
@@ -63,6 +69,7 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 		appCtx.Log().Errorf("Unable to make copy: %s", err)
 		return
 	}
+	appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
 
 	for dst, src := range links {
 		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
@@ -74,23 +81,115 @@ func (l *Local) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, move 
 		if err != nil {
 			return err
 		}
-	}
-
-	if move {
-		err = os.Remove(tmpBackup)
-		appCtx.Log().Infof("Successfully moved temp backup to %s", dstPath)
-	} else {
-		appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
+		appCtx.Log().Infof("Successfully created symlink %s", dst)
 	}
 
 	return
 }
 
-func (l *Local) ListFiles() (err error) {
+func (l *Local) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackup, ofs string, init bool) (err error) {
+	var (
+		dstPath string
+		links   map[string]string
+	)
+
+	source, err := os.Open(tmpBackup)
+	if err != nil {
+		return
+	}
+	defer source.Close()
+
+	dstPath, links, err = GetIncBackupDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, init)
+	if err != nil {
+		return
+	}
+
+	err = os.MkdirAll(path.Dir(dstPath), os.ModePerm)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+		return err
+	}
+
+	destination, err := os.Create(dstPath)
+	if err != nil {
+		return
+	}
+	defer destination.Close()
+
+	_, err = io.Copy(destination, source)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		return
+	}
+	appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
+
+	for dst, src := range links {
+		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
+		if err != nil {
+			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+			return err
+		}
+		err = os.Symlink(src, dst)
+		if err != nil {
+			return err
+		}
+		appCtx.Log().Infof("Successfully created symlink %s", dst)
+	}
+
 	return
 }
 
-func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (l *Local) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
+	var (
+		mtdDst      string
+		mtdLinks    map[string]string
+		destination *os.File
+	)
+
+	source, err := os.Open(tmpBackupMetadata)
+	if err != nil {
+		return
+	}
+	defer source.Close()
+
+	mtdDst, mtdLinks, err = GetIncMetaDstAndLinks(ofs, l.BackupPath, init)
+	if err != nil {
+		return
+	}
+
+	if mtdDst != "" {
+		err = os.MkdirAll(path.Dir(mtdDst), os.ModePerm)
+		if err != nil {
+			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+			return err
+		}
+
+		destination, err = os.Create(mtdDst)
+		if err != nil {
+			return
+		}
+		defer destination.Close()
+
+		_, err = io.Copy(destination, source)
+		if err != nil {
+			appCtx.Log().Errorf("Unable to make copy: %s", err)
+			return
+		}
+		appCtx.Log().Infof("Successfully copied metadata to %s", mtdDst)
+
+		for dst, src := range mtdLinks {
+			err = os.Symlink(src, dst)
+			if err != nil {
+				return err
+			}
+			appCtx.Log().Infof("Successfully created symlink %s", dst)
+		}
+	}
+
+	return
+}
+
+func (l *Local) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -141,6 +240,14 @@ func (l *Local) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) e
 	}
 
 	return nil
+}
+
+func (l *Local) GetFile(ofsPath string) (fs.File, error) {
+	fp, err := filepath.EvalSymlinks(path.Join(l.BackupPath, ofsPath))
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(fp)
 }
 
 func (l *Local) Close() error {

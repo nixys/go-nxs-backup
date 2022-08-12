@@ -43,6 +43,7 @@ type cfgJob struct {
 	JobName              string        `conf:"job_name" conf_extraopts:"required"`
 	JobType              string        `conf:"type" conf_extraopts:"required"`
 	TmpDir               string        `conf:"tmp_dir" conf_extraopts:"required"`
+	IncMetadataDir       string        `conf:"inc_metadata_dir"`
 	DumpCmd              string        `conf:"dump_cmd"`
 	SafetyBackup         bool          `conf:"safety_backup" conf_extraopts:"default=false"`
 	DeferredCopyingLevel int           `conf:"deferred_copying_level" conf_extraopts:"default=0"`
@@ -62,6 +63,7 @@ type cfgSource struct {
 	ExcludeDbs         []string `conf:"exclude_dbs"`
 	ExcludeCollections []string `conf:"exclude_collections"`
 	Gzip               bool     `conf:"gzip" conf_extraopts:"default=false"`
+	SaveAbsPath        bool     `conf:"save_abs_path" conf_extraopts:"default=false"`
 	IsSlave            bool     `conf:"is_slave" conf_extraopts:"default=false"`
 	ExtraKeys          string   `conf:"extra_keys"`
 	SkipBackupRotate   bool     `conf:"skip_backup_rotate" conf_extraopts:"default=false"` // used by external
@@ -94,9 +96,9 @@ type cfgStorageConnect struct {
 }
 
 type cfgRetention struct {
-	Days   int `conf:"days"`
-	Weeks  int `conf:"weeks"`
-	Months int `conf:"months"`
+	Days   int `conf:"days" conf_extraopts:"default=6"`
+	Weeks  int `conf:"weeks" conf_extraopts:"default=6"`
+	Months int `conf:"months" conf_extraopts:"default=12"`
 }
 
 type storageOpts struct {

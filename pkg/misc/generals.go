@@ -10,9 +10,12 @@ import (
 )
 
 const (
+	YearlyBackupDay  = "1"
 	MonthlyBackupDay = "1"
 	WeeklyBackupDay  = "7"
 )
+
+var DecadesBackupDays = []string{"1", "11", "21"}
 
 var AllowedJobTypes = []string{
 	"desc_files",
@@ -64,28 +67,17 @@ func GetDateTimeNow(unit string) (res string) {
 		res = strconv.Itoa(currentTime.Day())
 	case "dow":
 		res = strconv.Itoa(int(currentTime.Weekday()))
+	case "doy":
+		res = strconv.Itoa(currentTime.YearDay())
 	case "moy":
 		res = strconv.Itoa(int(currentTime.Month()))
 	case "year":
 		res = strconv.Itoa(currentTime.Year())
-	case "log":
-		res = currentTime.Format("2006-01-2 15:04:05.000000")
 	default:
 		res = currentTime.Format("2006-01-2_15-04")
 	}
 
 	return res
-}
-
-func GetNeedToMakeBackup(day, week, month int) bool {
-
-	if day > 0 ||
-		(week > 0 && GetDateTimeNow("dow") == WeeklyBackupDay) ||
-		(month > 0 && GetDateTimeNow("dom") == MonthlyBackupDay) {
-		return true
-	}
-
-	return false
 }
 
 func GetFileFullPath(dirPath, baseName, baseExtension, prefix string, gZip bool) (fullPath string) {

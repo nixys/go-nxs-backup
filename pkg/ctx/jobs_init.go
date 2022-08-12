@@ -2,6 +2,7 @@ package ctx
 
 import (
 	"fmt"
+	"nxs-backup/modules/backup/inc_files"
 	"nxs-backup/modules/backup/mongodump"
 	"nxs-backup/modules/backup/redis"
 	"nxs-backup/modules/connectors/mongo_connect"
@@ -35,36 +36,10 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			continue
 		}
 
-		needToMakeBackup := false
-
-		var jobStorages interfaces.Storages
-
-		for _, stOpts := range j.StoragesOptions {
-
-			// storages validation
-			s, ok := storages[stOpts.StorageName]
-			if !ok {
-				errs = append(errs, fmt.Errorf("unknown storage name: %s", stOpts.StorageName))
-				continue
-			}
-
-			if stOpts.Retention.Days < 0 || stOpts.Retention.Weeks < 0 || stOpts.Retention.Months < 0 {
-				errs = append(errs, fmt.Errorf("retention period can't be negative"))
-			}
-			if misc.GetNeedToMakeBackup(stOpts.Retention.Days, stOpts.Retention.Weeks, stOpts.Retention.Months) {
-				needToMakeBackup = true
-			}
-
-			st := s.Clone()
-			st.SetBackupPath(stOpts.BackupPath)
-			st.SetRetention(storage.Retention(stOpts.Retention))
-
-			jobStorages = append(jobStorages, st)
-		}
-
-		// sorting storages for installing local as last
-		if len(jobStorages) > 1 {
-			sort.Sort(jobStorages)
+		jobStorages, needToMakeBackup, stErrs := initJobStorages(storages, j.StoragesOptions)
+		if len(stErrs) > 0 {
+			errs = append(errs, stErrs...)
+			continue
 		}
 
 		switch j.JobType {
@@ -72,10 +47,11 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			var sources []desc_files.SourceParams
 			for _, src := range j.Sources {
 				sources = append(sources, desc_files.SourceParams{
-					Name:     src.Name,
-					Targets:  src.Targets,
-					Excludes: src.Excludes,
-					Gzip:     src.Gzip,
+					Name:        src.Name,
+					Targets:     src.Targets,
+					Excludes:    src.Excludes,
+					Gzip:        src.Gzip,
+					SaveAbsPath: src.SaveAbsPath,
 				})
 			}
 
@@ -83,6 +59,38 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
 				NeedToMakeBackup:     needToMakeBackup,
+				SafetyBackup:         j.SafetyBackup,
+				DeferredCopyingLevel: j.DeferredCopyingLevel,
+				Storages:             jobStorages,
+				Sources:              sources,
+			})
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+
+			jobs = append(jobs, job)
+
+		case "inc_files":
+			//if j.IncMetadataDir == "" {
+			//	errs = append(errs, fmt.Errorf("undefined `inc_metadata_dir` for job '%s'", j.JobName))
+			//	continue
+			//}
+			var sources []inc_files.SourceParams
+			for _, src := range j.Sources {
+				sources = append(sources, inc_files.SourceParams{
+					Name:        src.Name,
+					Targets:     src.Targets,
+					Excludes:    src.Excludes,
+					Gzip:        src.Gzip,
+					SaveAbsPath: src.SaveAbsPath,
+				})
+			}
+
+			job, err := inc_files.Init(inc_files.JobParams{
+				Name:                 j.JobName,
+				TmpDir:               j.TmpDir,
+				MetadataDir:          j.IncMetadataDir,
 				SafetyBackup:         j.SafetyBackup,
 				DeferredCopyingLevel: j.DeferredCopyingLevel,
 				Storages:             jobStorages,
@@ -340,6 +348,40 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 		default:
 
 		}
+	}
+
+	return
+}
+
+func initJobStorages(storages map[string]interfaces.Storage, opts []storageOpts) (jobStorages interfaces.Storages, needToMakeBackup bool, errs []error) {
+
+	for _, stOpts := range opts {
+
+		// storages validation
+		s, ok := storages[stOpts.StorageName]
+		if !ok {
+			errs = append(errs, fmt.Errorf("unknown storage name: %s", stOpts.StorageName))
+			continue
+		}
+
+		if stOpts.Retention.Days < 0 || stOpts.Retention.Weeks < 0 || stOpts.Retention.Months < 0 {
+			errs = append(errs, fmt.Errorf("retention period can't be negative"))
+		}
+
+		st := s.Clone()
+		st.SetBackupPath(stOpts.BackupPath)
+		st.SetRetention(storage.Retention(stOpts.Retention))
+
+		if storage.GetNeedToMakeBackup(stOpts.Retention.Days, stOpts.Retention.Weeks, stOpts.Retention.Months) {
+			needToMakeBackup = true
+		}
+
+		jobStorages = append(jobStorages, st)
+	}
+
+	// sorting storages for installing local as last
+	if len(jobStorages) > 1 {
+		sort.Sort(jobStorages)
 	}
 
 	return

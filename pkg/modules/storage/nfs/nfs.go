@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"time"
@@ -69,7 +70,7 @@ func (n *NFS) SetRetention(r Retention) {
 	n.Retention = r
 }
 
-func (n *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
+func (n *NFS) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
 
 	source, err := os.Open(tmpBackup)
 	if err != nil {
@@ -77,7 +78,7 @@ func (n *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	}
 	defer source.Close()
 
-	remotePaths := GetDstList(path.Base(tmpBackup), ofs, n.BackupPath, n.Days, n.Weeks, n.Months)
+	remotePaths := GetDescBackupDstList(path.Base(tmpBackup), ofs, n.BackupPath, n.Retention)
 
 	for _, dstPath := range remotePaths {
 		// Make remote directories
@@ -106,7 +107,17 @@ func (n *NFS) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool)
 	return nil
 }
 
-func (n *NFS) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (n *NFS) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *NFS) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *NFS) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -207,6 +218,11 @@ func (n *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 		}
 	}
 	return nil, ErrorFileNotFound
+}
+
+func (n *NFS) GetFile(ofsPath string) (fs.File, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (n *NFS) Close() error {

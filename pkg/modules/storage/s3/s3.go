@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -58,7 +59,7 @@ func (s *S3) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) error {
+func (s *S3) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
 
 	source, err := os.Open(tmpBackup)
 	if err != nil {
@@ -71,7 +72,7 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 		return err
 	}
 
-	bucketPaths := GetDstList(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Days, s.Weeks, s.Months)
+	bucketPaths := GetDescBackupDstList(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Retention)
 
 	for _, bucketPath := range bucketPaths {
 		n, err := s.Client.PutObject(context.Background(), s.BucketName, bucketPath, source, sourceStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
@@ -84,7 +85,17 @@ func (s *S3) CopyFile(appCtx *appctx.AppContext, tmpBackup, ofs string, _ bool) 
 	return nil
 }
 
-func (s *S3) ControlFiles(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (s *S3) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *S3) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *S3) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
 
 	var errs []error
 	objCh := make(chan minio.ObjectInfo)
@@ -159,6 +170,11 @@ func (s *S3) getObjectsPeriodicMap(ofsPartsList []string) (objs map[string][]min
 		}
 	}
 	return
+}
+
+func (s *S3) GetFile(ofsPath string) (fs.File, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (s *S3) Close() error {
