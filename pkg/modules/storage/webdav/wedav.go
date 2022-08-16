@@ -57,7 +57,7 @@ func (wd *WebDav) SetRetention(r Retention) {
 	wd.Retention = r
 }
 
-func (wd *WebDav) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
+func (wd *WebDav) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
@@ -103,17 +103,7 @@ func (wd *WebDav) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs s
 	return nil
 }
 
-func (wd *WebDav) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (wd *WebDav) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (wd *WebDav) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (wd *WebDav) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	curDate := time.Now()

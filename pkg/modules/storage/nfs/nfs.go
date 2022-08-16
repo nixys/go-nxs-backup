@@ -70,7 +70,7 @@ func (n *NFS) SetRetention(r Retention) {
 	n.Retention = r
 }
 
-func (n *NFS) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
+func (n *NFS) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
 
 	source, err := os.Open(tmpBackup)
 	if err != nil {
@@ -107,17 +107,7 @@ func (n *NFS) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs strin
 	return nil
 }
 
-func (n *NFS) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (n *NFS) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (n *NFS) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (n *NFS) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	curDate := time.Now()

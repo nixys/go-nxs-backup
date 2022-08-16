@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"io/ioutil"
+	"nxs-backup/misc"
 	"os"
 	"path"
 	"path/filepath"
@@ -35,200 +36,139 @@ func (l *Local) SetRetention(r Retention) {
 	l.Retention = r
 }
 
-func (l *Local) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) (err error) {
+func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) (err error) {
 	var (
-		dstPath string
-		links   map[string]string
+		bakDstPath, mtdDstPath string
+		links                  map[string]string
+		mtdSrc, mtdDst         *os.File
 	)
 
-	source, err := os.Open(tmpBackup)
-	if err != nil {
-		return
-	}
-	defer source.Close()
-
-	dstPath, links, err = GetDescBackupDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, l.Retention)
-	if err != nil {
-		return
-	}
-
-	err = os.MkdirAll(path.Dir(dstPath), os.ModePerm)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
-		return err
-	}
-
-	destination, err := os.Create(dstPath)
-	if err != nil {
-		return
-	}
-	defer destination.Close()
-
-	_, err = io.Copy(destination, source)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to make copy: %s", err)
-		return
-	}
-	appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
-
-	for dst, src := range links {
-		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
-			return err
-		}
-		err = os.Symlink(src, dst)
-		if err != nil {
-			return err
-		}
-		appCtx.Log().Infof("Successfully created symlink %s", dst)
-	}
-
-	return
-}
-
-func (l *Local) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackup, ofs string, init bool) (err error) {
-	var (
-		dstPath string
-		links   map[string]string
-	)
-
-	source, err := os.Open(tmpBackup)
-	if err != nil {
-		return
-	}
-	defer source.Close()
-
-	dstPath, links, err = GetIncBackupDstAndLinks(path.Base(tmpBackup), ofs, l.BackupPath, init)
-	if err != nil {
-		return
-	}
-
-	err = os.MkdirAll(path.Dir(dstPath), os.ModePerm)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
-		return err
-	}
-
-	destination, err := os.Create(dstPath)
-	if err != nil {
-		return
-	}
-	defer destination.Close()
-
-	_, err = io.Copy(destination, source)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to make copy: %s", err)
-		return
-	}
-	appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
-
-	for dst, src := range links {
-		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
-			return err
-		}
-		err = os.Symlink(src, dst)
-		if err != nil {
-			return err
-		}
-		appCtx.Log().Infof("Successfully created symlink %s", dst)
-	}
-
-	return
-}
-
-func (l *Local) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
-	var (
-		mtdDst      string
-		mtdLinks    map[string]string
-		destination *os.File
-	)
-
-	source, err := os.Open(tmpBackupMetadata)
-	if err != nil {
-		return
-	}
-	defer source.Close()
-
-	mtdDst, mtdLinks, err = GetIncMetaDstAndLinks(ofs, l.BackupPath, init)
-	if err != nil {
-		return
-	}
-
-	if mtdDst != "" {
-		err = os.MkdirAll(path.Dir(mtdDst), os.ModePerm)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
-			return err
-		}
-
-		destination, err = os.Create(mtdDst)
+	if bakType == misc.IncBackupType {
+		bakDstPath, mtdDstPath, links, err = GetIncBackupDstAndLinks(tmpBackupFile, ofs, l.BackupPath)
 		if err != nil {
 			return
 		}
-		defer destination.Close()
+	} else {
+		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, l.BackupPath, l.Retention)
+		if err != nil {
+			return
+		}
+	}
 
-		_, err = io.Copy(destination, source)
+	err = os.MkdirAll(path.Dir(bakDstPath), os.ModePerm)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+		return err
+	}
+
+	bakDst, err := os.Create(bakDstPath)
+	if err != nil {
+		return
+	}
+	defer bakDst.Close()
+
+	bakSrc, err := os.Open(tmpBackupFile)
+	if err != nil {
+		return
+	}
+	defer bakSrc.Close()
+
+	_, err = io.Copy(bakDst, bakSrc)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		return
+	}
+	appCtx.Log().Infof("Successfully copied temp backup to %s", bakDstPath)
+
+	if mtdDstPath != "" {
+		mtdSrcPath := tmpBackupFile + ".inc"
+
+		mtdSrc, err = os.Open(mtdSrcPath)
+		if err != nil {
+			return
+		}
+		defer mtdSrc.Close()
+
+		err = os.MkdirAll(path.Dir(mtdDstPath), os.ModePerm)
+		if err != nil {
+			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+			return err
+		}
+
+		mtdDst, err = os.Create(mtdDstPath)
+		if err != nil {
+			return
+		}
+		defer mtdDst.Close()
+
+		_, err = io.Copy(mtdDst, mtdSrc)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to make copy: %s", err)
 			return
 		}
-		appCtx.Log().Infof("Successfully copied metadata to %s", mtdDst)
+		appCtx.Log().Infof("Successfully copied metadata to %s", mtdDstPath)
+	}
 
-		for dst, src := range mtdLinks {
-			err = os.Symlink(src, dst)
-			if err != nil {
-				return err
-			}
-			appCtx.Log().Infof("Successfully created symlink %s", dst)
+	for dst, src := range links {
+		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
+		if err != nil {
+			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+			return err
 		}
+		err = os.Symlink(src, dst)
+		if err != nil {
+			return err
+		}
+		appCtx.Log().Infof("Successfully created symlink %s", dst)
 	}
 
 	return
 }
 
-func (l *Local) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (l *Local) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	curDate := time.Now()
 
-	for _, period := range []string{"daily", "weekly", "monthly"} {
-		for _, ofsPart := range ofsPartsList {
-			backupDir := path.Join(l.BackupPath, ofsPart, period)
-			files, err := ioutil.ReadDir(backupDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				appCtx.Log().Errorf("Failed to read files in directory '%s' with next error: %s", backupDir, err)
-				return err
-			}
-
-			for _, file := range files {
-
-				fileDate := file.ModTime()
-				var retentionDate time.Time
-
-				switch period {
-				case "daily":
-					retentionDate = fileDate.AddDate(0, 0, l.Retention.Days)
-				case "weekly":
-					retentionDate = fileDate.AddDate(0, 0, l.Retention.Weeks*7)
-				case "monthly":
-					retentionDate = fileDate.AddDate(0, l.Retention.Months, 0)
+	if bakType == misc.IncBackupType {
+		// TODO delete old inc backups
+	} else {
+		for _, period := range []string{"daily", "weekly", "monthly"} {
+			for _, ofsPart := range ofsPartsList {
+				backupDir := path.Join(l.BackupPath, ofsPart, period)
+				files, err := ioutil.ReadDir(backupDir)
+				if err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					appCtx.Log().Errorf("Failed to read files in directory '%s' with next error: %s", backupDir, err)
+					return err
 				}
 
-				retentionDate = retentionDate.Truncate(24 * time.Hour)
-				if curDate.After(retentionDate) {
-					err = os.Remove(path.Join(backupDir, file.Name()))
-					if err != nil {
-						appCtx.Log().Errorf("Failed to delete file '%s' in directory '%s' with next error: %s",
-							file.Name(), backupDir, err)
-						errs = append(errs, err)
-					} else {
-						appCtx.Log().Infof("Successfully deleted old backup file '%s' in directory '%s'", file.Name(), backupDir)
+				for _, file := range files {
+
+					fileDate := file.ModTime()
+					var retentionDate time.Time
+
+					switch period {
+					case "daily":
+						retentionDate = fileDate.AddDate(0, 0, l.Retention.Days)
+					case "weekly":
+						retentionDate = fileDate.AddDate(0, 0, l.Retention.Weeks*7)
+					case "monthly":
+						retentionDate = fileDate.AddDate(0, l.Retention.Months, 0)
+					}
+
+					retentionDate = retentionDate.Truncate(24 * time.Hour)
+					if curDate.After(retentionDate) {
+						err = os.Remove(path.Join(backupDir, file.Name()))
+						if err != nil {
+							appCtx.Log().Errorf("Failed to delete file '%s' in directory '%s' with next error: %s",
+								file.Name(), backupDir, err)
+							errs = append(errs, err)
+						} else {
+							appCtx.Log().Infof("Successfully deleted old backup file '%s' in directory '%s'", file.Name(), backupDir)
+						}
 					}
 				}
 			}

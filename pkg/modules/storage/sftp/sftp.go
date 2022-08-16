@@ -87,7 +87,7 @@ func (s *SFTP) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *SFTP) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
+func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
 
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
@@ -141,17 +141,7 @@ func (s *SFTP) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs stri
 	return nil
 }
 
-func (s *SFTP) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *SFTP) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *SFTP) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (s *SFTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	curDate := time.Now()

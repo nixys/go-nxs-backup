@@ -88,7 +88,7 @@ func (f *FTP) SetRetention(r Retention) {
 	f.Retention = r
 }
 
-func (f *FTP) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
+func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs string, bakType string) error {
 
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
@@ -96,13 +96,6 @@ func (f *FTP) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs strin
 		return err
 	}
 	defer srcFile.Close()
-
-	//var buf []byte
-	//_, err = srcFile.Read(buf)
-	//if err != nil {
-	//	appCtx.Log().Errorf("Unable to open tmp backup: '%f'", err)
-	//	return err
-	//}
 
 	remotePaths := GetDescBackupDstList(path.Base(tmpBackup), ofs, f.BackupPath, f.Retention)
 
@@ -116,39 +109,17 @@ func (f *FTP) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs strin
 		}
 
 		err = f.Client.Store(dstPath, srcFile)
-		//// Ignore error 250 here - send by some servers
-		//if err != nil {
-		//	switch errX := err.(type) {
-		//	case *textproto.Error:
-		//		switch errX.Code {
-		//		case ftp.StatusRequestedFileActionOK:
-		//			err = nil
-		//		}
-		//	}
-		//}
 		if err != nil {
-			//_ = f.Client.Close()
 			appCtx.Log().Errorf("Unable to upload file: %s", err)
 			return err
 		}
 		appCtx.Log().Infof("%s file successfully uploaded", srcFile.Name())
-
 	}
 
 	return nil
 }
 
-func (f *FTP) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (f *FTP) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (f *FTP) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (f *FTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	curDate := time.Now()

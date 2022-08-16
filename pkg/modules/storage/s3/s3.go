@@ -59,7 +59,7 @@ func (s *S3) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *S3) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
+func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
 
 	source, err := os.Open(tmpBackup)
 	if err != nil {
@@ -85,17 +85,7 @@ func (s *S3) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string
 	return nil
 }
 
-func (s *S3) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *S3) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *S3) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	objCh := make(chan minio.ObjectInfo)

@@ -2,14 +2,17 @@ package desc_files
 
 import (
 	"fmt"
+	"nxs-backup/modules/backend/targz"
+	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/targz"
 )
 
 type job struct {
@@ -19,16 +22,15 @@ type job struct {
 	safetyBackup         bool
 	deferredCopyingLevel int
 	storages             interfaces.Storages
-	sources              []source
+	targets              map[string]target
 	dumpedObjects        map[string]string
-	dumpPathsList        []string
 }
 
-type source struct {
-	name        string
-	targets     []map[string]string
+type target struct {
+	path        string
 	gzip        bool
 	saveAbsPath bool
+	excludes    []*regexp.Regexp
 }
 
 type JobParams struct {
@@ -58,12 +60,12 @@ func Init(jp JobParams) (*job, error) {
 		safetyBackup:         jp.SafetyBackup,
 		deferredCopyingLevel: jp.DeferredCopyingLevel,
 		storages:             jp.Storages,
+		targets:              make(map[string]target),
 		dumpedObjects:        make(map[string]string),
 	}
 
 	for _, src := range jp.Sources {
 
-		var targets []map[string]string
 		for _, targetPattern := range src.Targets {
 
 			for strings.HasSuffix(targetPattern, "/") {
@@ -75,38 +77,34 @@ func Init(jp JobParams) (*job, error) {
 				return nil, fmt.Errorf("Job `%s` init failed. Unable to process pattern: %s. Error: %s. ", jp.Name, targetPattern, err)
 			}
 
-			targetOfsMap := make(map[string]string)
 			for _, ofs := range targetOfsList {
+				var excludes []*regexp.Regexp
 
 				excluded := false
 				for _, exclPattern := range src.Excludes {
-
-					match, err := filepath.Match(exclPattern, ofs)
+					excl, err := regexp.CompilePOSIX(exclPattern)
 					if err != nil {
 						return nil, fmt.Errorf("Job `%s` init failed. Unable to process pattern: %s. Error: %s. ", jp.Name, exclPattern, err)
 					}
-					if match {
+					excludes = append(excludes, excl)
+
+					if excl.MatchString(ofs) {
 						excluded = true
-						break
 					}
 				}
 
 				if !excluded {
-					ofsPart := misc.GetOfsPart(targetPattern, ofs)
-					targetOfsMap[ofsPart] = ofs
-					j.dumpPathsList = append(j.dumpPathsList, src.Name+"/"+ofsPart)
+					ofsPart := src.Name + "/" + misc.GetOfsPart(targetPattern, ofs)
+
+					j.targets[ofsPart] = target{
+						path:        ofs,
+						gzip:        src.Gzip,
+						saveAbsPath: src.SaveAbsPath,
+						excludes:    excludes,
+					}
 				}
 			}
-
-			targets = append(targets, targetOfsMap)
 		}
-
-		j.sources = append(j.sources, source{
-			name:        src.Name,
-			targets:     targets,
-			gzip:        src.Gzip,
-			saveAbsPath: src.SaveAbsPath,
-		})
 	}
 
 	return j, nil
@@ -124,8 +122,11 @@ func (j *job) GetType() string {
 	return "desc_files"
 }
 
-func (j *job) GetTargetOfsList() []string {
-	return j.dumpPathsList
+func (j *job) GetTargetOfsList() (ofsList []string) {
+	for ofs := range j.targets {
+		ofsList = append(ofsList, ofs)
+	}
+	return
 }
 
 func (j *job) GetStoragesCount() int {
@@ -154,51 +155,44 @@ func (j *job) NeedToUpdateIncMeta() bool {
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	for _, src := range j.sources {
+	for ofsPart, tgt := range j.targets {
 
-		for _, target := range src.targets {
-
-			for ofsPart, ofs := range target {
-
-				tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name+"_"+ofsPart, "tar", "", src.gzip)
-
-				if err := createTmpBackup(appCtx, tmpBackupFile, ofs, src.gzip); err != nil {
-					appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
-					errs = append(errs, err)
-					continue
-				} else {
-					appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
-				}
-
-				j.dumpedObjects[src.name+"/"+ofsPart] = tmpBackupFile
-			}
-
-			if j.deferredCopyingLevel <= 0 {
-				errLst := j.storages.Delivery(appCtx, j)
-				errs = append(errs, errLst...)
-				j.dumpedObjects = make(map[string]string)
-			}
+		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
+		err := os.MkdirAll(path.Dir(tmpBackupFile), os.ModePerm)
+		if err != nil {
+			appCtx.Log().Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", j.name, err)
+			errs = append(errs, err)
+			continue
 		}
 
-		if j.deferredCopyingLevel == 1 {
+		if err = targz.Tar(tgt.path, tmpBackupFile, tgt.gzip, tgt.saveAbsPath, tgt.excludes); err != nil {
+			appCtx.Log().Errorf("Unable to make tar: %s", err)
+			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
+		} else {
+			appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
+		}
+
+		j.dumpedObjects[ofsPart] = tmpBackupFile
+		if j.deferredCopyingLevel <= 0 {
 			errLst := j.storages.Delivery(appCtx, j)
-			errs = append(errs, errLst...)
+			if len(errLst) > 0 {
+				appCtx.Log().Errorf("Failed to delivery backup by job %s", j.name)
+				appCtx.Log().Error(errLst)
+				errs = append(errs, errLst...)
+			}
 			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
-	if j.deferredCopyingLevel >= 2 {
+	if j.deferredCopyingLevel >= 1 {
 		errLst := j.storages.Delivery(appCtx, j)
-		errs = append(errs, errLst...)
+		if len(errLst) > 0 {
+			appCtx.Log().Errorf("Failed to delivery backup by job %s", j.name)
+			appCtx.Log().Error(errLst)
+			errs = append(errs, errLst...)
+		}
 	}
 
-	return
-}
-
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, gZip bool) (err error) {
-	if err := targz.Tar(ofs, tmpBackupPath, gZip, true); err != nil {
-		appCtx.Log().Errorf("Unable to make tar: %s", err)
-	}
 	return
 }
 

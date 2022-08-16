@@ -294,7 +294,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		}
 	}
 
-	if err := targz.Tar(tmpXtrabackupPath, tmpBackupFile, src.gzip, false); err != nil {
+	if err := targz.Tar(tmpXtrabackupPath, tmpBackupFile, src.gzip, false, nil); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return

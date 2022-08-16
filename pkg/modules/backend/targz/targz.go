@@ -2,10 +2,13 @@ package targz
 
 import (
 	"archive/tar"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/klauspost/pgzip"
 )
@@ -43,7 +46,7 @@ func GZip(src, dst string) error {
 	return err
 }
 
-func Tar(src, dst string, gz, saveAbsPath bool) error {
+func Tar(src, dst string, gz, saveAbsPath bool, excludes []*regexp.Regexp) error {
 
 	fileWriter, err := GetFileWriter(dst, gz)
 	if err != nil {
@@ -69,6 +72,13 @@ func Tar(src, dst string, gz, saveAbsPath bool) error {
 			if err != nil {
 				return err
 			}
+
+			for _, excl := range excludes {
+				if excl.MatchString(path) {
+					return nil
+				}
+			}
+
 			header, err := tar.FileInfoHeader(info, info.Name())
 			if err != nil {
 				return err
@@ -78,6 +88,13 @@ func Tar(src, dst string, gz, saveAbsPath bool) error {
 				header.Name = path
 			} else if baseDir != "" {
 				header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, src))
+			}
+
+			header.Format = tar.FormatPAX
+			header.PAXRecords = map[string]string{
+				"mtime": fmt.Sprintf("%f", float64(header.ModTime.UnixNano())/float64(time.Second)),
+				"atime": fmt.Sprintf("%f", float64(header.AccessTime.UnixNano())/float64(time.Second)),
+				"ctime": fmt.Sprintf("%f", float64(header.ChangeTime.UnixNano())/float64(time.Second)),
 			}
 
 			if err = tarWriter.WriteHeader(header); err != nil {

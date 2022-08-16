@@ -88,7 +88,7 @@ func (s *SMB) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *SMB) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs string) error {
+func (s *SMB) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
 	srcFile, err := os.Open(tmpBackup)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
@@ -142,17 +142,7 @@ func (s *SMB) DeliveryDescBackup(appCtx *appctx.AppContext, tmpBackup, ofs strin
 	return nil
 }
 
-func (s *SMB) DeliveryIncBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs string, init bool) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *SMB) DeliveryIncBackupMetadata(appCtx *appctx.AppContext, tmpBackupMetadata, ofs string, init bool) (err error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (s *SMB) DeleteOldDescBackups(appCtx *appctx.AppContext, ofsPartsList []string) error {
+func (s *SMB) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	curDate := time.Now()

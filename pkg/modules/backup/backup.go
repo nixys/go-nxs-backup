@@ -3,9 +3,9 @@ package backup
 import (
 	"fmt"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
@@ -46,14 +46,20 @@ func Perform(appCtx *appctx.AppContext, job interfaces.Job) (errs []error) {
 	errList := job.DoBackup(appCtx, tmpDirPath)
 	errs = append(errs, errList...)
 
+	err = filepath.Walk(tmpDirPath,
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// try to delete empty dirs
+			if info.IsDir() {
+				_ = os.Remove(path)
+			}
+			return nil
+		})
 	// cleanup tmp dir
-	files, _ := ioutil.ReadDir(tmpDirPath)
-	if len(files) == 0 {
-		err = os.Remove(tmpDirPath)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
+	_ = os.Remove(tmpDirPath)
 
 	return
 }

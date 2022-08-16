@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -34,6 +35,7 @@ type target struct {
 	path        string
 	gzip        bool
 	saveAbsPath bool
+	excludes    []*regexp.Regexp
 }
 
 type metadata map[string]float64
@@ -82,17 +84,18 @@ func Init(jp JobParams) (*job, error) {
 			}
 
 			for _, ofs := range targetOfsList {
+				var excludes []*regexp.Regexp
 
 				excluded := false
 				for _, exclPattern := range src.Excludes {
-
-					match, err := filepath.Match(exclPattern, ofs)
+					excl, err := regexp.CompilePOSIX(exclPattern)
 					if err != nil {
 						return nil, fmt.Errorf("Job `%s` init failed. Unable to process pattern: %s. Error: %s. ", jp.Name, exclPattern, err)
 					}
-					if match {
+					excludes = append(excludes, excl)
+
+					if excl.MatchString(ofs) {
 						excluded = true
-						break
 					}
 				}
 
@@ -102,6 +105,7 @@ func Init(jp JobParams) (*job, error) {
 						path:        ofs,
 						gzip:        src.Gzip,
 						saveAbsPath: src.SaveAbsPath,
+						excludes:    excludes,
 					}
 				}
 			}
@@ -156,71 +160,12 @@ func (j *job) NeedToUpdateIncMeta() bool {
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	//year := misc.GetDateTimeNow("year")
-	moy := misc.GetDateTimeNow("moy")
-	dom := misc.GetDateTimeNow("dom")
-
 	for ofsPart, tgt := range j.targets {
-		var (
-			err                                      error
-			getErrs                                  []error
-			initMeta                                 bool
-			yearMetaFile, monthMetaFile, dayMetaFile fs.File
-		)
-		mtd := make(metadata)
+		mtd, initMeta, err := j.getMetadata(appCtx, ofsPart)
 
-		yearMetaFile, err, getErrs = j.getMetadataFile(ofsPart, "year.inc")
-		if len(getErrs) > 0 {
-			appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, getErrs)
-		}
-		if err != nil {
-			appCtx.Log().Errorf("Failed to find backup year metadata by job %s. Error: %v", j.name, err)
+		if initMeta {
 			appCtx.Log().Info("Incremental backup will be reinitialized")
-			initMeta = true
 			// TODO Add backup dir full cleanup
-		} else {
-			if !misc.Contains(misc.DecadesBackupDays, dom) {
-				dayMetaFile, err, getErrs = j.getMetadataFile(ofsPart, "day.inc")
-				if len(getErrs) > 0 {
-					appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, getErrs)
-				}
-				if err != nil {
-					appCtx.Log().Errorf("Failed to find backup day metadata by job %s", j.name)
-					errs = append(errs, err)
-					continue
-				} else {
-					mtd, err = j.readMetadata(appCtx, dayMetaFile)
-					if err != nil {
-						appCtx.Log().Errorf("Failed to read backup day metadata by job %s", j.name)
-						errs = append(errs, err)
-						continue
-					}
-				}
-			} else if moy != "1" {
-				monthMetaFile, err, getErrs = j.getMetadataFile(ofsPart, "month.inc")
-				if len(getErrs) > 0 {
-					appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, getErrs)
-				}
-				if err != nil {
-					appCtx.Log().Errorf("Failed to find backup month metadata by job %s", j.name)
-					errs = append(errs, err)
-					continue
-				} else {
-					mtd, err = j.readMetadata(appCtx, monthMetaFile)
-					if err != nil {
-						appCtx.Log().Errorf("Failed to read backup month metadata by job %s", j.name)
-						errs = append(errs, err)
-						continue
-					}
-				}
-			} else {
-				mtd, err = j.readMetadata(appCtx, yearMetaFile)
-				if err != nil {
-					appCtx.Log().Errorf("Failed to read backup year metadata  by job %s", j.name)
-					errs = append(errs, err)
-					continue
-				}
-			}
 		}
 
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
@@ -231,7 +176,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 			continue
 		}
 
-		if err = j.createTmpBackup(appCtx, tmpBackupFile, tgt, mtd, initMeta); err != nil {
+		if err = j.createTmpBackup(tmpBackupFile, tgt, mtd, initMeta); err != nil {
 			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
 			appCtx.Log().Error(err)
 			errs = append(errs, err)
@@ -264,14 +209,14 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 	return
 }
 
-func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, tgt target, prevMtd metadata, initMeta bool) (err error) {
+func (j *job) createTmpBackup(tmpBackupFile string, tgt target, prevMtd metadata, initMeta bool) error {
 
 	// create new index
 	mtd := make(metadata)
 
 	fileWriter, err := targz.GetFileWriter(tmpBackupFile, tgt.gzip)
 	if err != nil {
-		return
+		return err
 	}
 	defer func() { _ = fileWriter.Close() }()
 
@@ -280,19 +225,28 @@ func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, t
 
 	info, err := os.Stat(tgt.path)
 	if err != nil {
-		return
+		return err
 	}
 
 	var baseDir string
 	if info.IsDir() {
-		baseDir = filepath.Base(tgt.path)
+		baseDir = path.Base(tgt.path)
 	}
+
+	headers := map[string]*tar.Header{}
 
 	err = filepath.Walk(tgt.path,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
+
+			for _, excl := range tgt.excludes {
+				if excl.MatchString(path) {
+					return err
+				}
+			}
+
 			header, err := tar.FileInfoHeader(info, info.Name())
 			if err != nil {
 				return err
@@ -303,44 +257,159 @@ func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, t
 			} else if baseDir != "" {
 				header.Name = filepath.Join(baseDir, strings.TrimPrefix(path, tgt.path))
 			}
+			header.Format = tar.FormatPAX
 
-			if err = tarWriter.WriteHeader(header); err != nil {
-				return err
+			mTime := float64(header.ModTime.UnixNano()) / float64(time.Second)
+			aTime := float64(header.AccessTime.UnixNano()) / float64(time.Second)
+			cTime := float64(header.ChangeTime.UnixNano()) / float64(time.Second)
+
+			paxRecs := map[string]string{
+				"mtime": fmt.Sprintf("%f", mTime),
+				"atime": fmt.Sprintf("%f", aTime),
+				"ctime": fmt.Sprintf("%f", cTime),
 			}
 
 			if info.IsDir() {
-				return nil
-			}
+				var (
+					files   []fs.FileInfo
+					dumpDir string
+				)
+				delimiterSymbol := "\u0000"
 
-			mtd[path] = float64(info.ModTime().UnixNano()) / float64(time.Second)
-
-			if prevMtd[path] != mtd[path] {
-				file, err := os.Open(path)
+				files, err = ioutil.ReadDir(path)
 				if err != nil {
 					return err
 				}
-				defer func() { _ = file.Close() }()
+				for _, fi := range files {
+					excluded := false
+					for _, excl := range tgt.excludes {
+						if excl.MatchString(filepath.Join(path, fi.Name())) {
+							excluded = true
+							break
+						}
+					}
+					if excluded {
+						continue
+					}
 
-				_, err = io.Copy(tarWriter, file)
+					if fi.IsDir() {
+						dumpDir += "D"
+					} else if prevMtd[path] == mtd[path] {
+						dumpDir += "N"
+					} else {
+						dumpDir += "Y"
+					}
+					dumpDir += fi.Name() + delimiterSymbol
+				}
+				paxRecs["GNU.dumpdir"] = dumpDir + delimiterSymbol
+			} else {
+				mtd[path] = mTime
 			}
+			header.PAXRecords = paxRecs
+
+			headers[path] = header
 
 			return err
 		})
 	if err != nil {
-		return
+		return err
+	}
+
+	for fPath, header := range headers {
+		if err = tarWriter.WriteHeader(header); err != nil {
+			return err
+		}
+		if _, ok := header.PAXRecords["GNU.dumpdir"]; !ok {
+			func() {
+				var file fs.File
+				file, err = os.Open(fPath)
+				defer func() { _ = file.Close() }()
+				if err != nil {
+					return
+				}
+				_, err = io.Copy(tarWriter, file)
+				if err != nil {
+					return
+				}
+			}()
+		}
 	}
 
 	file, err := json.Marshal(mtd)
 	if err != nil {
-		return
+		return err
 	}
 	err = ioutil.WriteFile(path.Join(path.Dir(tmpBackupFile), path.Base(tmpBackupFile)+".inc"), file, 0644)
 	if err != nil {
-		return
+		return err
 	}
 
 	if initMeta {
-		_, err = os.Create(path.Join(path.Dir(tmpBackupFile), path.Base(tmpBackupFile)+"init"))
+		_, err = os.Create(path.Join(path.Dir(tmpBackupFile), path.Base(tmpBackupFile)+".init"))
+	}
+	return err
+}
+
+func (j *job) getMetadata(appCtx *appctx.AppContext, ofsPart string) (mtd metadata, initMeta bool, err error) {
+	var (
+		errs                                     []error
+		yearMetaFile, monthMetaFile, dayMetaFile fs.File
+	)
+	mtd = make(metadata)
+
+	//year := misc.GetDateTimeNow("year")
+	moy := misc.GetDateTimeNow("moy")
+	dom := misc.GetDateTimeNow("dom")
+
+	initMeta = misc.GetDateTimeNow("doy") == misc.YearlyBackupDay
+
+	yearMetaFile, err, errs = j.getMetadataFile(ofsPart, "year.inc")
+	if len(errs) > 0 {
+		appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
+	}
+	if err != nil {
+		appCtx.Log().Errorf("Failed to find backup year metadata by job %s. Error: %v", j.name, err)
+		initMeta = true
+	}
+
+	if !initMeta {
+		if !misc.Contains(misc.DecadesBackupDays, dom) {
+			dayMetaFile, err, errs = j.getMetadataFile(ofsPart, "day.inc")
+			if len(errs) > 0 {
+				appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
+			}
+			if err != nil {
+				appCtx.Log().Errorf("Failed to find backup day metadata by job %s", j.name)
+				return
+			} else {
+				mtd, err = j.readMetadata(appCtx, dayMetaFile)
+				if err != nil {
+					appCtx.Log().Errorf("Failed to read backup day metadata by job %s", j.name)
+					return
+				}
+			}
+		} else if moy != "1" {
+			monthMetaFile, err, errs = j.getMetadataFile(ofsPart, "month.inc")
+			if len(errs) > 0 {
+				appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
+			}
+			if err != nil {
+				appCtx.Log().Errorf("Failed to find backup month metadata by job %s", j.name)
+				return
+			} else {
+				mtd, err = j.readMetadata(appCtx, monthMetaFile)
+				if err != nil {
+					appCtx.Log().Errorf("Failed to read backup month metadata by job %s", j.name)
+					return
+				}
+			}
+		} else {
+			mtd, err = j.readMetadata(appCtx, yearMetaFile)
+			if err != nil {
+				appCtx.Log().Errorf("Failed to read backup year metadata  by job %s", j.name)
+				return
+			}
+		}
 	}
 	return
 }

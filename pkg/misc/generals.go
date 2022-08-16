@@ -13,6 +13,7 @@ const (
 	YearlyBackupDay  = "1"
 	MonthlyBackupDay = "1"
 	WeeklyBackupDay  = "7"
+	IncBackupType    = "inc_files"
 )
 
 var DecadesBackupDays = []string{"1", "11", "21"}
