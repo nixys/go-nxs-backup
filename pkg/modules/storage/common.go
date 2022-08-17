@@ -4,13 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"nxs-backup/misc"
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
-
-	"nxs-backup/misc"
 )
 
 var (
@@ -73,39 +71,15 @@ func GetDescBackupDstAndLinks(tmpBackupFile, ofs, bakPath string, retention Rete
 	return
 }
 
-func GetDescBackupDstList(bakFile, ofs, bakPath string, retention Retention) (dst []string) {
-
-	basePath := strings.TrimPrefix(path.Join(bakPath, ofs), "/")
-
-	if misc.GetDateTimeNow("dom") == misc.MonthlyBackupDay && retention.Months > 0 {
-		dst = append(dst, path.Join(basePath, "monthly", bakFile))
-	}
-	if misc.GetDateTimeNow("dow") == misc.WeeklyBackupDay && retention.Weeks > 0 {
-		dst = append(dst, path.Join(basePath, "weekly", bakFile))
-	}
-	if retention.Days > 0 {
-		dst = append(dst, path.Join(basePath, "daily", bakFile))
-	}
-
-	return
-}
-
 func GetIncBackupDstAndLinks(tmpBackupFile, ofs, bakPath string) (bakDst, mtdDst string, links map[string]string, err error) {
 
-	var decadeDay, relative string
+	var relative string
 	links = make(map[string]string)
 
 	year := misc.GetDateTimeNow("year")
 	dom := misc.GetDateTimeNow("dom")
 	month := fmt.Sprintf("month_%02s", misc.GetDateTimeNow("moy"))
-	intDom, _ := strconv.Atoi(dom)
-	if intDom < 11 {
-		decadeDay = "day_01"
-	} else if intDom > 20 {
-		decadeDay = "day_21"
-	} else {
-		decadeDay = "day_11"
-	}
+	decadeDay := misc.GetDecadeDaySubdir()
 
 	init := true
 	if _, err = os.Stat(tmpBackupFile + ".init"); errors.Is(err, fs.ErrNotExist) {
@@ -166,6 +140,59 @@ func GetIncBackupDstAndLinks(tmpBackupFile, ofs, bakPath string) (bakDst, mtdDst
 		} else {
 			mtdDst = dayDst
 		}
+	}
+
+	return
+}
+
+func GetDescBackupDstList(bakFile, ofs, bakPath string, retention Retention) (dst []string) {
+
+	basePath := strings.TrimPrefix(path.Join(bakPath, ofs), "/")
+
+	if misc.GetDateTimeNow("dom") == misc.MonthlyBackupDay && retention.Months > 0 {
+		dst = append(dst, path.Join(basePath, "monthly", bakFile))
+	}
+	if misc.GetDateTimeNow("dow") == misc.WeeklyBackupDay && retention.Weeks > 0 {
+		dst = append(dst, path.Join(basePath, "weekly", bakFile))
+	}
+	if retention.Days > 0 {
+		dst = append(dst, path.Join(basePath, "daily", bakFile))
+	}
+
+	return
+}
+
+func GetIncBackupDstList(tmpBackupFile, ofs, bakPath string) (bakDst, mtdDst []string) {
+
+	year := misc.GetDateTimeNow("year")
+	dom := misc.GetDateTimeNow("dom")
+	month := fmt.Sprintf("month_%02s", misc.GetDateTimeNow("moy"))
+	decadeDay := misc.GetDecadeDaySubdir()
+
+	init := true
+	if _, err := os.Stat(tmpBackupFile + ".init"); errors.Is(err, fs.ErrNotExist) {
+		init = false
+	}
+
+	bakFileName := path.Base(tmpBackupFile)
+	bakBasePath := path.Join(bakPath, ofs, year)
+	mtdPath := path.Join(bakBasePath, "inc_meta_info")
+
+	if misc.GetDateTimeNow("doy") == misc.YearlyBackupDay || init {
+		bakDst = append(bakDst, path.Join(bakBasePath, "year", bakFileName))
+		mtdDst = append(mtdDst, path.Join(mtdPath, "year.inc"))
+	}
+
+	if dom == misc.MonthlyBackupDay || init {
+		monthBakDst := path.Join(bakBasePath, month, "monthly")
+		bakDst = append(bakDst, path.Join(monthBakDst, bakFileName))
+		mtdDst = append(mtdDst, path.Join(mtdPath, "month.inc"))
+	}
+
+	dayDstPath := path.Join(bakBasePath, month, decadeDay)
+	bakDst = append(bakDst, path.Join(dayDstPath, bakFileName))
+	if misc.Contains(misc.DecadesBackupDays, dom) || init {
+		mtdDst = append(mtdDst, path.Join(mtdPath, "day.inc"))
 	}
 
 	return

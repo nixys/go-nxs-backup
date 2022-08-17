@@ -107,8 +107,14 @@ func (j *job) GetStoragesCount() int {
 	return len(j.storages)
 }
 
-func (j *job) GetDumpedObjects() map[string]string {
+func (j *job) GetDumpObjects() map[string]interfaces.DumpObject {
 	return j.dumpedObjects
+}
+
+func (j *job) SetDumpObjectDelivered(ofs string) {
+	dumpObj := j.dumpedObjects[ofs]
+	dumpObj.Delivered = true
+	j.dumpedObjects[ofs] = dumpObj
 }
 
 func (j *job) IsBackupSafety() bool {
@@ -125,6 +131,10 @@ func (j *job) NeedToUpdateIncMeta() bool {
 
 func (j *job) DeleteOldBackups(appCtx *appctx.AppContext) []error {
 	return j.storages.DeleteOldBackups(appCtx, j)
+}
+
+func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
+	return j.storages.CleanupTmpData(appCtx, j)
 }
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {

@@ -2,12 +2,13 @@ package interfaces
 
 import (
 	"io/fs"
-	"nxs-backup/misc"
 	"os"
 	"path"
 
+	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
+	"nxs-backup/misc"
 	"nxs-backup/modules/storage"
 )
 
@@ -38,32 +39,51 @@ func (s Storages) DeleteOldBackups(appCtx *appctx.AppContext, j Job) (errs []err
 	return
 }
 
-func (s Storages) Delivery(appCtx *appctx.AppContext, job Job) (errs []error) {
+func (s Storages) Delivery(appCtx *appctx.AppContext, job Job) error {
 
-	for ofs, tmpBackupFile := range job.GetDumpedObjects() {
+	var errs *multierror.Error
 
-		for _, st := range s {
-			if err := st.DeliveryBackup(appCtx, tmpBackupFile, ofs, job.GetType()); err != nil {
-				errs = append(errs, err)
+	for ofs, dumpObj := range job.GetDumpObjects() {
+		if !dumpObj.Delivered {
+			var errsDelivery []error
+			for _, st := range s {
+				if err := st.DeliveryBackup(appCtx, dumpObj.TmpFile, ofs, job.GetType()); err != nil {
+					errsDelivery = append(errsDelivery, err)
+				}
+			}
+			if len(errsDelivery) == 0 {
+				job.SetDumpObjectDelivered(ofs)
+			} else {
+				errs = multierror.Append(errs, errsDelivery...)
 			}
 		}
+	}
 
+	return errs.ErrorOrNil()
+}
+
+func (s Storages) CleanupTmpData(appCtx *appctx.AppContext, job Job) error {
+	var errs *multierror.Error
+
+	for _, dumpObj := range job.GetDumpObjects() {
+
+		tmpBakFile := dumpObj.TmpFile
 		if job.GetType() == misc.IncBackupType {
 			// cleanup tmp metadata files
-			_ = os.Remove(path.Join(path.Dir(tmpBackupFile), path.Base(tmpBackupFile)+".inc"))
-			initFile := path.Join(path.Dir(tmpBackupFile), path.Base(tmpBackupFile)+".init")
+			_ = os.Remove(path.Join(tmpBakFile + ".inc"))
+			initFile := path.Join(tmpBakFile + ".init")
 			if _, err := os.Stat(initFile); err == nil {
 				_ = os.Remove(initFile)
 			}
 		}
 
 		// cleanup tmp backup file
-		if err := os.Remove(tmpBackupFile); err != nil {
-			errs = append(errs, err)
+		if err := os.Remove(tmpBakFile); err != nil {
+			errs = multierror.Append(errs, err)
 		}
-		appCtx.Log().Infof("deleted temp backup file '%s'", tmpBackupFile)
+		appCtx.Log().Infof("deleted temp backup file '%s'", tmpBakFile)
 	}
-	return
+	return errs.ErrorOrNil()
 }
 
 func (s Storages) Close() error {

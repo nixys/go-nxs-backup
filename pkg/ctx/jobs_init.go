@@ -72,10 +72,6 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 			jobs = append(jobs, job)
 
 		case "inc_files":
-			//if j.IncMetadataDir == "" {
-			//	errs = append(errs, fmt.Errorf("undefined `inc_metadata_dir` for job '%s'", j.JobName))
-			//	continue
-			//}
 			var sources []inc_files.SourceParams
 			for _, src := range j.Sources {
 				sources = append(sources, inc_files.SourceParams{

@@ -46,6 +46,8 @@ func Perform(appCtx *appctx.AppContext, job interfaces.Job) (errs []error) {
 	errList := job.DoBackup(appCtx, tmpDirPath)
 	errs = append(errs, errList...)
 
+	err = job.CleanupTmpData(appCtx)
+
 	err = filepath.Walk(tmpDirPath,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {

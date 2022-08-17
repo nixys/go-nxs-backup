@@ -90,6 +90,7 @@ func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, 
 	var errs []error
 	objCh := make(chan minio.ObjectInfo)
 	curDate := time.Now()
+	// TODO delete old inc backups
 
 	objMap, err := s.getObjectsPeriodicMap(ofsPartsList)
 	if err != nil {

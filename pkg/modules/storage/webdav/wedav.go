@@ -107,6 +107,7 @@ func (wd *WebDav) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []str
 
 	var errs []error
 	curDate := time.Now()
+	// TODO delete old inc backups
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
 		for _, ofsPart := range ofsPartsList {

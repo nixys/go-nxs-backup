@@ -1,6 +1,7 @@
 package local
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -9,6 +10,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -40,12 +44,14 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 	var (
 		bakDstPath, mtdDstPath string
 		links                  map[string]string
-		mtdSrc, mtdDst         *os.File
 	)
 
 	if bakType == misc.IncBackupType {
 		bakDstPath, mtdDstPath, links, err = GetIncBackupDstAndLinks(tmpBackupFile, ofs, l.BackupPath)
 		if err != nil {
+			return
+		}
+		if err = l.deliveryBackupMetadata(appCtx, tmpBackupFile, mtdDstPath); err != nil {
 			return
 		}
 	} else {
@@ -65,13 +71,13 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 	if err != nil {
 		return
 	}
-	defer bakDst.Close()
+	defer func() { _ = bakDst.Close() }()
 
 	bakSrc, err := os.Open(tmpBackupFile)
 	if err != nil {
 		return
 	}
-	defer bakSrc.Close()
+	defer func() { _ = bakSrc.Close() }()
 
 	_, err = io.Copy(bakDst, bakSrc)
 	if err != nil {
@@ -79,35 +85,6 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 		return
 	}
 	appCtx.Log().Infof("Successfully copied temp backup to %s", bakDstPath)
-
-	if mtdDstPath != "" {
-		mtdSrcPath := tmpBackupFile + ".inc"
-
-		mtdSrc, err = os.Open(mtdSrcPath)
-		if err != nil {
-			return
-		}
-		defer mtdSrc.Close()
-
-		err = os.MkdirAll(path.Dir(mtdDstPath), os.ModePerm)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
-			return err
-		}
-
-		mtdDst, err = os.Create(mtdDstPath)
-		if err != nil {
-			return
-		}
-		defer mtdDst.Close()
-
-		_, err = io.Copy(mtdDst, mtdSrc)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to make copy: %s", err)
-			return
-		}
-		appCtx.Log().Infof("Successfully copied metadata to %s", mtdDstPath)
-	}
 
 	for dst, src := range links {
 		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
@@ -125,20 +102,86 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 	return
 }
 
+func (l *Local) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile, mtdDstPath string) error {
+	mtdSrcPath := tmpBackupFile + ".inc"
+
+	mtdSrc, err := os.Open(mtdSrcPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = mtdSrc.Close() }()
+
+	err = os.MkdirAll(path.Dir(mtdDstPath), os.ModePerm)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+		return err
+	}
+
+	mtdDst, err := os.Create(mtdDstPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = mtdDst.Close() }()
+
+	_, err = io.Copy(mtdDst, mtdSrc)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		return err
+	}
+	appCtx.Log().Infof("Successfully copied metadata to %s", mtdDstPath)
+
+	return nil
+}
+
 func (l *Local) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
 
 	var errs []error
 	curDate := time.Now()
 
-	if bakType == misc.IncBackupType {
-		// TODO delete old inc backups
-	} else {
-		for _, period := range []string{"daily", "weekly", "monthly"} {
-			for _, ofsPart := range ofsPartsList {
+	for _, ofsPart := range ofsPartsList {
+		if bakType == misc.IncBackupType {
+			intMoy, _ := strconv.Atoi(misc.GetDateTimeNow("moy"))
+			lastMonth := intMoy - l.Months
+
+			var year string
+			if lastMonth > 0 {
+				year = misc.GetDateTimeNow("year")
+			} else {
+				year = misc.GetDateTimeNow("previous_year")
+				lastMonth += 12
+			}
+
+			backupDir := path.Join(l.BackupPath, ofsPart, year)
+			dirs, err := ioutil.ReadDir(backupDir)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil
+				} else {
+					appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+					return err
+				}
+			}
+
+			for _, dir := range dirs {
+				rx := regexp.MustCompile("month_\\d\\d")
+				if rx.MatchString(dir.Name()) {
+					dirParts := strings.Split(dir.Name(), "_")
+					dirMonth, _ := strconv.Atoi(dirParts[1])
+					if dirMonth < lastMonth {
+						err = os.RemoveAll(path.Join(backupDir, dir.Name()))
+						if err != nil {
+							appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s", dir.Name(), backupDir, err)
+							errs = append(errs, err)
+						}
+					}
+				}
+			}
+		} else {
+			for _, period := range []string{"daily", "weekly", "monthly"} {
 				backupDir := path.Join(l.BackupPath, ofsPart, period)
 				files, err := ioutil.ReadDir(backupDir)
 				if err != nil {
-					if os.IsNotExist(err) {
+					if errors.Is(err, fs.ErrNotExist) {
 						continue
 					}
 					appCtx.Log().Errorf("Failed to read files in directory '%s' with next error: %s", backupDir, err)

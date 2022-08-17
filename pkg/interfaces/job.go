@@ -8,12 +8,14 @@ type Job interface {
 	GetType() string
 	GetTargetOfsList() []string
 	GetStoragesCount() int
-	GetDumpedObjects() map[string]string
+	GetDumpObjects() map[string]DumpObject
+	SetDumpObjectDelivered(ofs string)
 	IsBackupSafety() bool
 	NeedToMakeBackup() bool
 	NeedToUpdateIncMeta() bool
 	DoBackup(ctx *appctx.AppContext, tmpDir string) []error
 	DeleteOldBackups(ctx *appctx.AppContext) []error
+	CleanupTmpData(ctx *appctx.AppContext) error
 	Close() error
 }
 
@@ -24,4 +26,9 @@ func (j Jobs) Close() error {
 		_ = job.Close()
 	}
 	return nil
+}
+
+type DumpObject struct {
+	TmpFile   string
+	Delivered bool
 }

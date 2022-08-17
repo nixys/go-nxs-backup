@@ -28,7 +28,7 @@ type job struct {
 	deferredCopyingLevel int
 	storages             interfaces.Storages
 	targets              map[string]target
-	dumpedObjects        map[string]string
+	dumpedObjects        map[string]interfaces.DumpObject
 }
 
 type target struct {
@@ -66,7 +66,7 @@ func Init(jp JobParams) (*job, error) {
 		safetyBackup:         jp.SafetyBackup,
 		deferredCopyingLevel: jp.DeferredCopyingLevel,
 		storages:             jp.Storages,
-		dumpedObjects:        make(map[string]string),
+		dumpedObjects:        make(map[string]interfaces.DumpObject),
 		targets:              make(map[string]target),
 	}
 
@@ -138,8 +138,14 @@ func (j *job) GetStoragesCount() int {
 	return len(j.storages)
 }
 
-func (j *job) GetDumpedObjects() map[string]string {
+func (j *job) GetDumpObjects() map[string]interfaces.DumpObject {
 	return j.dumpedObjects
+}
+
+func (j *job) SetDumpObjectDelivered(ofs string) {
+	dumpObj := j.dumpedObjects[ofs]
+	dumpObj.Delivered = true
+	j.dumpedObjects[ofs] = dumpObj
 }
 
 func (j *job) IsBackupSafety() bool {
@@ -148,6 +154,10 @@ func (j *job) IsBackupSafety() bool {
 
 func (j *job) DeleteOldBackups(appCtx *appctx.AppContext) []error {
 	return j.storages.DeleteOldBackups(appCtx, j)
+}
+
+func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
+	return j.storages.CleanupTmpData(appCtx, j)
 }
 
 func (j *job) NeedToMakeBackup() bool {
@@ -185,24 +195,21 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 		appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
 
-		j.dumpedObjects[ofsPart] = tmpBackupFile
+		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 		if j.deferredCopyingLevel <= 0 {
-			errLst := j.storages.Delivery(appCtx, j)
-			if len(errLst) > 0 {
-				appCtx.Log().Errorf("Failed to delivery backup by job %s", j.name)
-				appCtx.Log().Error(errLst)
-				errs = append(errs, errLst...)
+			err = j.storages.Delivery(appCtx, j)
+			if err != nil {
+				appCtx.Log().Errorf("Failed to delivery backup by job %s. Errors: %v", j.name, err)
+				errs = append(errs, err)
 			}
-			j.dumpedObjects = make(map[string]string)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		errLst := j.storages.Delivery(appCtx, j)
-		if len(errLst) > 0 {
-			appCtx.Log().Errorf("Failed to delivery backup by job %s", j.name)
-			appCtx.Log().Error(errLst)
-			errs = append(errs, errLst...)
+		err := j.storages.Delivery(appCtx, j)
+		if err != nil {
+			appCtx.Log().Errorf("Failed to delivery backup by job %s. Errors: %v", j.name, err)
+			errs = append(errs, err)
 		}
 	}
 
@@ -419,7 +426,7 @@ func (j *job) getMetadataFile(ofsPart, metadata string) (file fs.File, err error
 
 	year := misc.GetDateTimeNow("year")
 
-	for i := len(j.storages) - 1; i == 0; i-- {
+	for i := len(j.storages) - 1; i >= 0; i-- {
 		st := j.storages[i]
 
 		file, err = st.GetFile(path.Join(ofsPart, year, "inc_meta_info", metadata))
