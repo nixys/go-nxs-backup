@@ -25,13 +25,11 @@ type job struct {
 	safetyBackup         bool
 	deferredCopyingLevel int
 	storages             interfaces.Storages
-	sources              []source
-	dumpedObjects        map[string]string
-	dumpPathsList        []string
+	targets              map[string]target
+	dumpedObjects        map[string]interfaces.DumpObject
 }
 
-type source struct {
-	name      string
+type target struct {
 	connUrl   *url.URL
 	extraKeys []string
 	gzip      bool
@@ -70,7 +68,8 @@ func Init(jp JobParams) (*job, error) {
 		safetyBackup:         jp.SafetyBackup,
 		deferredCopyingLevel: jp.DeferredCopyingLevel,
 		storages:             jp.Storages,
-		dumpedObjects:        make(map[string]string),
+		targets:              make(map[string]target),
+		dumpedObjects:        make(map[string]interfaces.DumpObject),
 	}
 
 	for _, src := range jp.Sources {
@@ -87,14 +86,11 @@ func Init(jp JobParams) (*job, error) {
 		}
 		_ = conn.Close()
 
-		j.dumpPathsList = append(j.dumpPathsList, src.Name)
-		j.sources = append(j.sources, source{
-			name:      src.Name,
+		j.targets[src.Name] = target{
 			extraKeys: src.ExtraKeys,
 			gzip:      src.Gzip,
 			connUrl:   connUrl,
-		})
-
+		}
 	}
 
 	return j, nil
@@ -112,8 +108,11 @@ func (j *job) GetType() string {
 	return "postgresql_basebackup"
 }
 
-func (j *job) GetTargetOfsList() []string {
-	return j.dumpPathsList
+func (j *job) GetTargetOfsList() (ofsList []string) {
+	for ofs := range j.targets {
+		ofsList = append(ofsList, ofs)
+	}
+	return
 }
 
 func (j *job) GetStoragesCount() int {
@@ -152,49 +151,48 @@ func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	for _, src := range j.sources {
+	for ofsPart, tgt := range j.targets {
 
-		tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name, "tar", "", src.gzip)
+		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
 
-		if err := createTmpBackup(appCtx, tmpBackupFile, src); err != nil {
+		if errLst := createTmpBackup(appCtx, tmpBackupFile, ofsPart, tgt); errLst != nil {
 			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
-			errs = append(errs, err...)
+			errs = append(errs, errLst...)
 			continue
 		} else {
 			appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
 		}
 
-		j.dumpedObjects[src.name] = tmpBackupFile
+		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
 		if j.deferredCopyingLevel <= 0 {
-			errLst := j.storages.Delivery(appCtx, j)
-			errs = append(errs, errLst...)
-			j.dumpedObjects = make(map[string]string)
+			err := j.storages.Delivery(appCtx, j)
+			errs = append(errs, err)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		errLst := j.storages.Delivery(appCtx, j)
-		errs = append(errs, errLst...)
+		err := j.storages.Delivery(appCtx, j)
+		errs = append(errs, err)
 	}
 
 	return
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source) (errs []error) {
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile, tgtName string, tgt target) (errs []error) {
 
 	var stderr, stdout bytes.Buffer
 
-	tmpBasebackupPath := path.Join(path.Dir(tmpBackupFile), "pg_basebackup_"+src.name+"_"+misc.GetDateTimeNow(""))
+	tmpBasebackupPath := path.Join(path.Dir(tmpBackupFile), "pg_basebackup_"+tgtName+"_"+misc.GetDateTimeNow(""))
 
 	var args []string
 	// define command args
 	// add extra dump cmd options
-	if len(src.extraKeys) > 0 {
-		args = append(args, src.extraKeys...)
+	if len(tgt.extraKeys) > 0 {
+		args = append(args, tgt.extraKeys...)
 	}
 	// add db connect
-	args = append(args, "--dbname="+src.connUrl.String())
+	args = append(args, "--dbname="+tgt.connUrl.String())
 	// add data catalog path
 	args = append(args, "--pgdata="+tmpBasebackupPath)
 
@@ -207,22 +205,22 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		errs = append(errs, err)
 		return
 	}
-	appCtx.Log().Infof("Starting to dump `%s` source", src.name)
+	appCtx.Log().Infof("Starting to dump `%s` source", tgtName)
 
 	if err := cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to make dump `%s`. Error: %s", src.name, stderr.String())
+		appCtx.Log().Errorf("Unable to make dump `%s`. Error: %s", tgtName, stderr.String())
 		errs = append(errs, err)
 		return
 	}
 
-	if err := targz.Tar(tmpBasebackupPath, tmpBackupFile, src.gzip, false, nil); err != nil {
+	if err := targz.Tar(tmpBasebackupPath, tmpBackupFile, tgt.gzip, false, nil); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return
 	}
 	_ = os.RemoveAll(tmpBasebackupPath)
 
-	appCtx.Log().Infof("Dumping of source `%s` completed", src.name)
+	appCtx.Log().Infof("Dumping of source `%s` completed", tgtName)
 
 	return
 }

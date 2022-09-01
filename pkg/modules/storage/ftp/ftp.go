@@ -82,28 +82,10 @@ func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs strin
 		bakRemPaths = GetDescBackupDstList(path.Base(tmpBackupFile), ofs, f.bakPath, f.Retention)
 	}
 
-	srcFile, err := os.Open(tmpBackupFile)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
-		return err
-	}
-	defer func() { _ = srcFile.Close() }()
-
 	for _, dstPath := range bakRemPaths {
-		// Make remote directories
-		dstDir := path.Dir(dstPath)
-		err = f.mkDir(dstDir)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
+		if err := f.copy(appCtx, dstPath, tmpBackupFile); err != nil {
 			return err
 		}
-
-		err = f.conn.Stor(dstPath, srcFile)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to upload file: %s", err)
-			return err
-		}
-		appCtx.Log().Infof("%s file successfully uploaded", srcFile.Name())
 	}
 
 	return nil
@@ -112,29 +94,37 @@ func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs strin
 func (f *FTP) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile string, mtdDstPaths []string) error {
 	mtdSrcPath := tmpBackupFile + ".inc"
 
-	mtdSrc, err := os.Open(mtdSrcPath)
+	for _, dstPath := range mtdDstPaths {
+		if err := f.copy(appCtx, dstPath, mtdSrcPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *FTP) copy(appCtx *appctx.AppContext, dst, src string) error {
+	srcFile, err := os.Open(src)
 	if err != nil {
+		appCtx.Log().Errorf("Unable to open file: '%s'", err)
 		return err
 	}
-	defer func() { _ = mtdSrc.Close() }()
+	defer func() { _ = srcFile.Close() }()
 
-	for _, dstPath := range mtdDstPaths {
-		// Make remote directories
-		dstDir := path.Dir(dstPath)
-		err = f.mkDir(dstDir)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
-			return err
-		}
-
-		err = f.conn.Stor(dstPath, mtdSrc)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to upload file: %s", err)
-			return err
-		}
-		appCtx.Log().Infof("Successfully uploaded file '%s'", dstPath)
+	// Make remote directories
+	dstDir := path.Dir(dst)
+	err = f.mkDir(dstDir)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
+		return err
 	}
 
+	err = f.conn.Stor(dst, srcFile)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to upload file: %s", err)
+		return err
+	}
+	appCtx.Log().Infof("Successfully uploaded file '%s'", dst)
 	return nil
 }
 

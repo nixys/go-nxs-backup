@@ -8,7 +8,6 @@ import (
 	"path"
 	"regexp"
 
-	"github.com/jmoiron/sqlx"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
@@ -25,25 +24,18 @@ type job struct {
 	safetyBackup         bool
 	deferredCopyingLevel int
 	storages             interfaces.Storages
-	sources              []source
-	dumpedObjects        map[string]string
-	dumpPathsList        []string
-}
-
-type source struct {
-	name      string
-	connect   *sqlx.DB
-	authFile  string
-	targets   []target
-	extraKeys []string
-	gzip      bool
-	isSlave   bool
-	prepare   bool
+	targets              map[string]target
+	dumpedObjects        map[string]interfaces.DumpObject
 }
 
 type target struct {
+	authFile     string
 	dbName       string
 	ignoreTables []string
+	extraKeys    []string
+	gzip         bool
+	isSlave      bool
+	prepare      bool
 }
 
 type JobParams struct {
@@ -82,7 +74,8 @@ func Init(jp JobParams) (*job, error) {
 		safetyBackup:         jp.SafetyBackup,
 		deferredCopyingLevel: jp.DeferredCopyingLevel,
 		storages:             jp.Storages,
-		dumpedObjects:        make(map[string]string),
+		targets:              make(map[string]target),
+		dumpedObjects:        make(map[string]interfaces.DumpObject),
 	}
 
 	for _, src := range jp.Sources {
@@ -98,15 +91,13 @@ func Init(jp JobParams) (*job, error) {
 		if err != nil {
 			return nil, err
 		}
+		_ = dbConn.Close()
 
 		for _, db := range databases {
 			if misc.Contains(src.Excludes, db) {
 				continue
 			}
-			var targets []target
 			if misc.Contains(src.TargetDBs, "all") || misc.Contains(src.TargetDBs, db) {
-
-				j.dumpPathsList = append(j.dumpPathsList, src.Name+"/"+db)
 
 				var ignoreTables []string
 				compRegEx := regexp.MustCompile(`^(?P<db>` + db + `)\.(?P<table>.*$)`)
@@ -117,22 +108,16 @@ func Init(jp JobParams) (*job, error) {
 						ignoreTables = append(ignoreTables, "--tables-exclude=^"+db+"[.]"+match[2])
 					}
 				}
-				targets = append(targets, target{
+				j.targets[src.Name+"/"+db] = target{
+					authFile:     authFile,
 					dbName:       db,
 					ignoreTables: ignoreTables,
-				})
-
+					extraKeys:    src.ExtraKeys,
+					gzip:         src.Gzip,
+					isSlave:      src.IsSlave,
+					prepare:      src.Prepare,
+				}
 			}
-			j.sources = append(j.sources, source{
-				name:      src.Name,
-				targets:   targets,
-				connect:   dbConn,
-				authFile:  authFile,
-				extraKeys: src.ExtraKeys,
-				gzip:      src.Gzip,
-				isSlave:   src.IsSlave,
-				prepare:   src.Prepare,
-			})
 		}
 	}
 
@@ -151,8 +136,11 @@ func (j *job) GetType() string {
 	return "mysql_xtrabackup"
 }
 
-func (j *job) GetTargetOfsList() []string {
-	return j.dumpPathsList
+func (j *job) GetTargetOfsList() (ofsList []string) {
+	for ofs := range j.targets {
+		ofsList = append(ofsList, ofs)
+	}
+	return
 }
 
 func (j *job) GetStoragesCount() int {
@@ -191,45 +179,36 @@ func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	for _, src := range j.sources {
+	for ofsPart, tgt := range j.targets {
 
-		for _, tgt := range src.targets {
+		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
 
-			tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name+"_"+tgt.dbName, "tar", "", src.gzip)
-
-			err := createTmpBackup(appCtx, tmpBackupFile, src, tgt)
-			if err != nil {
-				appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
-				errs = append(errs, err...)
-				continue
-			} else {
-				appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
-			}
-
-			j.dumpedObjects[src.name+"/"+tgt.dbName] = tmpBackupFile
-
-			if j.deferredCopyingLevel <= 0 {
-				errLst := j.storages.Delivery(appCtx, j)
-				errs = append(errs, errLst...)
-				j.dumpedObjects = make(map[string]string)
-			}
+		errList := createTmpBackup(appCtx, tmpBackupFile, tgt)
+		if errList != nil {
+			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
+			errs = append(errs, errList...)
+			continue
+		} else {
+			appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
 		}
-		if j.deferredCopyingLevel == 1 {
-			errLst := j.storages.Delivery(appCtx, j)
-			errs = append(errs, errLst...)
-			j.dumpedObjects = make(map[string]string)
+
+		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
+
+		if j.deferredCopyingLevel <= 0 {
+			err := j.storages.Delivery(appCtx, j)
+			errs = append(errs, err)
 		}
 	}
 
-	if j.deferredCopyingLevel >= 2 {
-		errLst := j.storages.Delivery(appCtx, j)
-		errs = append(errs, errLst...)
+	if j.deferredCopyingLevel >= 1 {
+		err := j.storages.Delivery(appCtx, j)
+		errs = append(errs, err)
 	}
 
 	return
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source, target target) (errs []error) {
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target target) (errs []error) {
 
 	var (
 		stderr, stdout          bytes.Buffer
@@ -239,7 +218,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	tmpXtrabackupPath := path.Join(path.Dir(tmpBackupFile), "xtrabackup_"+target.dbName+"_"+misc.GetDateTimeNow(""))
 
 	// define commands args with auth options
-	backupArgs = append(backupArgs, "--defaults-file="+src.authFile)
+	backupArgs = append(backupArgs, "--defaults-file="+target.authFile)
 	prepareArgs = backupArgs
 	// add backup options
 	backupArgs = append(backupArgs, "--backup", "--target-dir="+tmpXtrabackupPath)
@@ -247,12 +226,12 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	if len(target.ignoreTables) > 0 {
 		backupArgs = append(backupArgs, target.ignoreTables...)
 	}
-	if src.isSlave {
+	if target.isSlave {
 		backupArgs = append(backupArgs, "--safe-slave-backup")
 	}
 	// add extra backup options
-	if len(src.extraKeys) > 0 {
-		backupArgs = append(backupArgs, src.extraKeys...)
+	if len(target.extraKeys) > 0 {
+		backupArgs = append(backupArgs, target.extraKeys...)
 	}
 
 	cmd := exec.Command("xtrabackup", backupArgs...)
@@ -283,7 +262,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 	stdout.Reset()
 	stderr.Reset()
 
-	if src.prepare {
+	if target.prepare {
 		// add prepare options
 		prepareArgs = append(prepareArgs, "--prepare", "--export", "--target-dir="+tmpXtrabackupPath)
 		cmd = exec.Command("xtrabackup", prepareArgs...)
@@ -304,7 +283,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		}
 	}
 
-	if err := targz.Tar(tmpXtrabackupPath, tmpBackupFile, src.gzip, false, nil); err != nil {
+	if err := targz.Tar(tmpXtrabackupPath, tmpBackupFile, target.gzip, false, nil); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return
@@ -325,10 +304,6 @@ func checkXtrabackupStatus(out string) error {
 }
 
 func (j *job) Close() error {
-	for _, src := range j.sources {
-		_ = os.Remove(src.authFile)
-		_ = src.connect.Close()
-	}
 	for _, st := range j.storages {
 		_ = st.Close()
 	}

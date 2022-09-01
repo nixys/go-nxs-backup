@@ -24,24 +24,18 @@ type job struct {
 	safetyBackup         bool
 	deferredCopyingLevel int
 	storages             interfaces.Storages
-	sources              []source
-	dumpedObjects        map[string]string
-	dumpPathsList        []string
-}
-
-type source struct {
-	name      string
-	connect   *sqlx.DB
-	authFile  string
-	targets   []target
-	extraKeys []string
-	gzip      bool
-	isSlave   bool
+	targets              map[string]target
+	dumpedObjects        map[string]interfaces.DumpObject
 }
 
 type target struct {
+	connect      *sqlx.DB
+	authFile     string
 	dbName       string
 	ignoreTables []string
+	extraKeys    []string
+	isSlave      bool
+	gzip         bool
 }
 
 type JobParams struct {
@@ -79,7 +73,8 @@ func Init(jp JobParams) (*job, error) {
 		safetyBackup:         jp.SafetyBackup,
 		deferredCopyingLevel: jp.DeferredCopyingLevel,
 		storages:             jp.Storages,
-		dumpedObjects:        make(map[string]string),
+		targets:              make(map[string]target),
+		dumpedObjects:        make(map[string]interfaces.DumpObject),
 	}
 
 	for _, src := range jp.Sources {
@@ -100,10 +95,7 @@ func Init(jp JobParams) (*job, error) {
 			if misc.Contains(src.Excludes, db) {
 				continue
 			}
-			var targets []target
 			if misc.Contains(src.TargetDBs, "all") || misc.Contains(src.TargetDBs, db) {
-
-				j.dumpPathsList = append(j.dumpPathsList, src.Name+"/"+db)
 
 				var ignoreTables []string
 				for _, excl := range src.Excludes {
@@ -111,21 +103,16 @@ func Init(jp JobParams) (*job, error) {
 						ignoreTables = append(ignoreTables, "--ignore-table="+excl)
 					}
 				}
-				targets = append(targets, target{
+				j.targets[src.Name+"/"+db] = target{
+					connect:      dbConn,
+					authFile:     authFile,
 					dbName:       db,
 					ignoreTables: ignoreTables,
-				})
-
+					extraKeys:    src.ExtraKeys,
+					gzip:         src.Gzip,
+					isSlave:      src.IsSlave,
+				}
 			}
-			j.sources = append(j.sources, source{
-				name:      src.Name,
-				targets:   targets,
-				connect:   dbConn,
-				authFile:  authFile,
-				extraKeys: src.ExtraKeys,
-				gzip:      src.Gzip,
-				isSlave:   src.IsSlave,
-			})
 		}
 	}
 
@@ -144,8 +131,11 @@ func (j *job) GetType() string {
 	return "mysql"
 }
 
-func (j *job) GetTargetOfsList() []string {
-	return j.dumpPathsList
+func (j *job) GetTargetOfsList() (ofsList []string) {
+	for ofs := range j.targets {
+		ofsList = append(ofsList, ofs)
+	}
+	return
 }
 
 func (j *job) GetStoragesCount() int {
@@ -184,55 +174,46 @@ func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	for _, src := range j.sources {
+	for ofsPart, tgt := range j.targets {
 
-		for _, tgt := range src.targets {
+		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "sql", "", tgt.gzip)
 
-			tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name+"_"+tgt.dbName, "sql", "", src.gzip)
-
-			err := createTmpBackup(appCtx, tmpBackupFile, src, tgt)
-			if err != nil {
-				appCtx.Log().Errorf("Job %s. Unable to create temp backups %s", j.name, tmpBackupFile)
-				errs = append(errs, err...)
-				continue
-			} else {
-				appCtx.Log().Infof("Job %s. Created temp backups %s", j.name, tmpBackupFile)
-			}
-
-			j.dumpedObjects[src.name+"/"+tgt.dbName] = tmpBackupFile
-
-			if j.deferredCopyingLevel <= 0 {
-				errLst := j.storages.Delivery(appCtx, j)
-				errs = append(errs, errLst...)
-				j.dumpedObjects = make(map[string]string)
-			}
+		errList := createTmpBackup(appCtx, tmpBackupFile, tgt)
+		if errList != nil {
+			appCtx.Log().Errorf("Job %s. Unable to create temp backups %s", j.name, tmpBackupFile)
+			errs = append(errs, errList...)
+			continue
+		} else {
+			appCtx.Log().Infof("Job %s. Created temp backups %s", j.name, tmpBackupFile)
 		}
-		if j.deferredCopyingLevel == 1 {
-			errLst := j.storages.Delivery(appCtx, j)
-			errs = append(errs, errLst...)
-			j.dumpedObjects = make(map[string]string)
+
+		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
+
+		if j.deferredCopyingLevel <= 0 {
+			err := j.storages.Delivery(appCtx, j)
+			errs = append(errs, err)
 		}
 	}
 
-	if j.deferredCopyingLevel >= 2 {
-		errLst := j.storages.Delivery(appCtx, j)
-		errs = append(errs, errLst...)
+	if j.deferredCopyingLevel >= 1 {
+		err := j.storages.Delivery(appCtx, j)
+		errs = append(errs, err)
 	}
 
 	return
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source, target target) (errs []error) {
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target target) (errs []error) {
 
-	backupWriter, err := targz.GetFileWriter(tmpBackupFile, src.gzip)
+	backupWriter, err := targz.GetFileWriter(tmpBackupFile, target.gzip)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
 		return append(errs, err)
 	}
-	defer backupWriter.Close()
+	defer func() { _ = backupWriter.Close() }()
 
-	if src.isSlave {
-		_, err := src.connect.Exec("STOP SLAVE")
+	if target.isSlave {
+		_, err := target.connect.Exec("STOP SLAVE")
 		if err != nil {
 			appCtx.Log().Errorf("Unable to stop slave. Error: %s", err)
 			errs = append(errs, err)
@@ -240,7 +221,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		}
 		appCtx.Log().Infof("Slave stopped")
 		defer func() {
-			_, err = src.connect.Exec("START SLAVE")
+			_, err = target.connect.Exec("START SLAVE")
 			if err != nil {
 				appCtx.Log().Errorf("Unable to start slave. Error: %s", err)
 				errs = append(errs, err)
@@ -252,14 +233,14 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 
 	var args []string
 	// define command args with auth options
-	args = append(args, "--defaults-extra-file="+src.authFile)
+	args = append(args, "--defaults-extra-file="+target.authFile)
 	// add tables exclude
 	if len(target.ignoreTables) > 0 {
 		args = append(args, target.ignoreTables...)
 	}
 	// add extra dump cmd options
-	if len(src.extraKeys) > 0 {
-		args = append(args, src.extraKeys...)
+	if len(target.extraKeys) > 0 {
+		args = append(args, target.extraKeys...)
 	}
 	// add db name
 	args = append(args, target.dbName)
@@ -288,9 +269,9 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 }
 
 func (j *job) Close() error {
-	for _, src := range j.sources {
-		_ = os.Remove(src.authFile)
-		_ = src.connect.Close()
+	for _, tgt := range j.targets {
+		_ = os.Remove(tgt.authFile)
+		_ = tgt.connect.Close()
 	}
 	for _, st := range j.storages {
 		_ = st.Close()

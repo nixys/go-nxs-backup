@@ -22,13 +22,11 @@ type job struct {
 	safetyBackup         bool
 	deferredCopyingLevel int
 	storages             interfaces.Storages
-	sources              []source
-	dumpedObjects        map[string]string
-	dumpPathsList        []string
+	targets              map[string]target
+	dumpedObjects        map[string]interfaces.DumpObject
 }
 
-type source struct {
-	name string
+type target struct {
 	dsn  string
 	gzip bool
 }
@@ -64,7 +62,8 @@ func Init(jp JobParams) (*job, error) {
 		safetyBackup:         jp.SafetyBackup,
 		deferredCopyingLevel: jp.DeferredCopyingLevel,
 		storages:             jp.Storages,
-		dumpedObjects:        make(map[string]string),
+		targets:              make(map[string]target),
+		dumpedObjects:        make(map[string]interfaces.DumpObject),
 	}
 
 	for _, src := range jp.Sources {
@@ -75,13 +74,10 @@ func Init(jp JobParams) (*job, error) {
 		}
 		_ = conn.Close()
 
-		j.dumpPathsList = append(j.dumpPathsList, src.Name)
-		j.sources = append(j.sources, source{
-			name: src.Name,
+		j.targets[src.Name] = target{
 			gzip: src.Gzip,
 			dsn:  dsn,
-		})
-
+		}
 	}
 
 	return j, nil
@@ -99,8 +95,11 @@ func (j *job) GetType() string {
 	return "redis"
 }
 
-func (j *job) GetTargetOfsList() []string {
-	return j.dumpPathsList
+func (j *job) GetTargetOfsList() (ofsList []string) {
+	for ofs := range j.targets {
+		ofsList = append(ofsList, ofs)
+	}
+	return
 }
 
 func (j *job) GetStoragesCount() int {
@@ -139,41 +138,40 @@ func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	for _, src := range j.sources {
+	for ofsPart, tgt := range j.targets {
 
-		if err := j.createTmpBackup(appCtx, tmpDir, src); err != nil {
+		if errList := j.createTmpBackup(appCtx, tmpDir, ofsPart, tgt); errList != nil {
 			appCtx.Log().Errorf("Failed to create temp backup by job %s", j.name)
-			errs = append(errs, err...)
+			errs = append(errs, errList...)
 			continue
 		}
 
 		if j.deferredCopyingLevel <= 0 {
-			errLst := j.storages.Delivery(appCtx, j)
-			errs = append(errs, errLst...)
-			j.dumpedObjects = make(map[string]string)
+			err := j.storages.Delivery(appCtx, j)
+			errs = append(errs, err)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		errLst := j.storages.Delivery(appCtx, j)
-		errs = append(errs, errLst...)
+		err := j.storages.Delivery(appCtx, j)
+		errs = append(errs, err)
 	}
 
 	return
 }
 
-func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir string, src source) (errs []error) {
+func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir, tgtName string, tgt target) (errs []error) {
 
 	var stderr, stdout bytes.Buffer
 
-	tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name, "rdb", "", src.gzip)
+	tmpBackupFile := misc.GetFileFullPath(tmpDir, tgtName, "rdb", "", tgt.gzip)
 
 	tmpBackupRdb := strings.TrimSuffix(tmpBackupFile, ".gz")
 
 	var args []string
 	// define command args
 	// add db connect
-	args = append(args, "-u", src.dsn)
+	args = append(args, "-u", tgt.dsn)
 	// add data catalog path
 	args = append(args, "--rdb", tmpBackupRdb)
 
@@ -186,15 +184,15 @@ func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir string, src sour
 		errs = append(errs, err)
 		return
 	}
-	appCtx.Log().Infof("Starting to dump `%s` source", src.name)
+	appCtx.Log().Infof("Starting to dump `%s` source", tgtName)
 
 	if err := cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to make dump `%s`. Error: %s", src.name, stderr.String())
+		appCtx.Log().Errorf("Unable to make dump `%s`. Error: %s", tgtName, stderr.String())
 		errs = append(errs, err)
 		return
 	}
 
-	if src.gzip {
+	if tgt.gzip {
 		if err := targz.GZip(tmpBackupRdb, tmpBackupFile); err != nil {
 			appCtx.Log().Errorf("Unable to archivate tmp backup: %s", err)
 			errs = append(errs, err)
@@ -203,10 +201,10 @@ func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir string, src sour
 		_ = os.RemoveAll(tmpBackupRdb)
 	}
 
-	appCtx.Log().Infof("Dumping of source `%s` completed", src.name)
+	appCtx.Log().Infof("Dumping of source `%s` completed", tgtName)
 	appCtx.Log().Infof("Created temp backup %s by job %s", tmpBackupFile, j.name)
 
-	j.dumpedObjects[src.name] = tmpBackupFile
+	j.dumpedObjects[tgtName] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
 	return
 }

@@ -92,9 +92,13 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
 			return err
 		}
-		err = os.Symlink(src, dst)
-		if err != nil {
-			return err
+		if err = os.Symlink(src, dst); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				appCtx.Log().Infof("Symlink %s exist", dst)
+				err = nil
+			} else {
+				return err
+			}
 		}
 		appCtx.Log().Infof("Successfully created symlink %s", dst)
 	}

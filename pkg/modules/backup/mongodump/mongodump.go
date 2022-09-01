@@ -11,7 +11,6 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
@@ -27,23 +26,16 @@ type job struct {
 	safetyBackup         bool
 	deferredCopyingLevel int
 	storages             interfaces.Storages
-	sources              []source
-	dumpedObjects        map[string]string
-	dumpPathsList        []string
-}
-
-type source struct {
-	name      string
-	connect   *mongo.Client
-	dsn       string
-	targets   []target
-	extraKeys []string
-	gzip      bool
+	targets              map[string]target
+	dumpedObjects        map[string]interfaces.DumpObject
 }
 
 type target struct {
+	dsn               string
 	dbName            string
 	ignoreCollections []string
+	extraKeys         []string
+	gzip              bool
 }
 
 type JobParams struct {
@@ -81,7 +73,8 @@ func Init(jp JobParams) (*job, error) {
 		safetyBackup:         jp.SafetyBackup,
 		deferredCopyingLevel: jp.DeferredCopyingLevel,
 		storages:             jp.Storages,
-		dumpedObjects:        make(map[string]string),
+		targets:              make(map[string]target),
+		dumpedObjects:        make(map[string]interfaces.DumpObject),
 	}
 
 	for _, src := range jp.Sources {
@@ -97,15 +90,13 @@ func Init(jp JobParams) (*job, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Job `%s` init failed. Unable to list databases. Error: %s ", jp.Name, err)
 		}
+		_ = conn.Disconnect(context.TODO())
 
 		for _, db := range databases {
 			if misc.Contains(src.ExcludeDBs, db) {
 				continue
 			}
-			var targets []target
 			if misc.Contains(src.TargetDBs, "all") || misc.Contains(src.TargetDBs, db) {
-
-				j.dumpPathsList = append(j.dumpPathsList, src.Name+"/"+db)
 
 				var ignoreCollections []string
 				compRegEx := regexp.MustCompile(`^(?P<db>` + db + `)\.(?P<collection>.*$)`)
@@ -114,20 +105,15 @@ func Init(jp JobParams) (*job, error) {
 						ignoreCollections = append(ignoreCollections, "--excludeCollection="+match[2])
 					}
 				}
-				targets = append(targets, target{
+				j.targets[src.Name+"/"+db] = target{
 					dbName:            db,
 					ignoreCollections: ignoreCollections,
-				})
+					dsn:               dsn,
+					extraKeys:         src.ExtraKeys,
+					gzip:              src.Gzip,
+				}
 
 			}
-			j.sources = append(j.sources, source{
-				name:      src.Name,
-				targets:   targets,
-				connect:   conn,
-				dsn:       dsn,
-				extraKeys: src.ExtraKeys,
-				gzip:      src.Gzip,
-			})
 		}
 	}
 
@@ -146,8 +132,11 @@ func (j *job) GetType() string {
 	return "mongodb"
 }
 
-func (j *job) GetTargetOfsList() []string {
-	return j.dumpPathsList
+func (j *job) GetTargetOfsList() (ofsList []string) {
+	for ofs := range j.targets {
+		ofsList = append(ofsList, ofs)
+	}
+	return
 }
 
 func (j *job) GetStoragesCount() int {
@@ -186,52 +175,43 @@ func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
 
 func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
 
-	for _, src := range j.sources {
+	for ofsPart, tgt := range j.targets {
 
-		for _, tgt := range src.targets {
+		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
 
-			tmpBackupFile := misc.GetFileFullPath(tmpDir, src.name+"_"+tgt.dbName, "tar", "", src.gzip)
-
-			err := createTmpBackup(appCtx, tmpBackupFile, src, tgt)
-			if err != nil {
-				appCtx.Log().Errorf("Job %s. Unable to create temp backups %s", j.name, tmpBackupFile)
-				errs = append(errs, err...)
-				continue
-			} else {
-				appCtx.Log().Infof("Job %s. Created temp backups %s", j.name, tmpBackupFile)
-			}
-
-			j.dumpedObjects[src.name+"/"+tgt.dbName] = tmpBackupFile
-
-			if j.deferredCopyingLevel <= 0 {
-				errLst := j.storages.Delivery(appCtx, j)
-				errs = append(errs, errLst...)
-				j.dumpedObjects = make(map[string]string)
-			}
+		errList := createTmpBackup(appCtx, tmpBackupFile, tgt)
+		if errList != nil {
+			appCtx.Log().Errorf("Job %s. Unable to create temp backups %s", j.name, tmpBackupFile)
+			errs = append(errs, errList...)
+			continue
+		} else {
+			appCtx.Log().Infof("Job %s. Created temp backups %s", j.name, tmpBackupFile)
 		}
-		if j.deferredCopyingLevel == 1 {
-			errLst := j.storages.Delivery(appCtx, j)
-			errs = append(errs, errLst...)
-			j.dumpedObjects = make(map[string]string)
+
+		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
+
+		if j.deferredCopyingLevel <= 0 {
+			err := j.storages.Delivery(appCtx, j)
+			errs = append(errs, err)
 		}
 	}
 
-	if j.deferredCopyingLevel >= 2 {
-		errLst := j.storages.Delivery(appCtx, j)
-		errs = append(errs, errLst...)
+	if j.deferredCopyingLevel >= 1 {
+		err := j.storages.Delivery(appCtx, j)
+		errs = append(errs, err)
 	}
 
 	return
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source, target target) (errs []error) {
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target target) (errs []error) {
 
-	tmpMongodumpPath := path.Join(path.Dir(tmpBackupFile), "mongodump_"+src.name+"_"+misc.GetDateTimeNow(""))
+	tmpMongodumpPath := path.Join(path.Dir(tmpBackupFile), "mongodump_"+target.dbName+"_"+misc.GetDateTimeNow(""))
 
 	var args []string
 	// define command args
 	// auth url
-	args = append(args, "--uri="+src.dsn)
+	args = append(args, "--uri="+target.dsn)
 	args = append(args, "--authenticationDatabase=admin")
 	// add db name
 	args = append(args, "--db="+target.dbName)
@@ -240,8 +220,8 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		args = append(args, target.ignoreCollections...)
 	}
 	// add extra dump cmd options
-	if len(src.extraKeys) > 0 {
-		args = append(args, src.extraKeys...)
+	if len(target.extraKeys) > 0 {
+		args = append(args, target.extraKeys...)
 	}
 	// set output
 	args = append(args, "--out="+tmpMongodumpPath)
@@ -264,7 +244,7 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 		return
 	}
 
-	if err := targz.Tar(tmpMongodumpPath, tmpBackupFile, src.gzip, false, nil); err != nil {
+	if err := targz.Tar(tmpMongodumpPath, tmpBackupFile, target.gzip, false, nil); err != nil {
 		appCtx.Log().Errorf("Unable to make tar: %s", err)
 		errs = append(errs, err)
 		return
@@ -277,9 +257,6 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, src source
 }
 
 func (j *job) Close() error {
-	for _, src := range j.sources {
-		_ = src.connect.Disconnect(context.TODO())
-	}
 	for _, st := range j.storages {
 		_ = st.Close()
 	}
