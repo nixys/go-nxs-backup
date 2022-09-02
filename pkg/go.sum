@@ -34,8 +34,12 @@ github.com/hashicorp/go-multierror v1.1.1 h1:H5DkEtf6CXdFp0N0Em5UCwQpXMWke8IA0+l
 github.com/hashicorp/go-multierror v1.1.1/go.mod h1:iw975J/qwKPdAO1clOe2L8331t/9/fmwbPZ6JB6eMoM=
 github.com/hirochachacha/go-smb2 v1.1.0 h1:b6hs9qKIql9eVXAiN0M2wSFY5xnhbHAQoCwRKbaRTZI=
 github.com/hirochachacha/go-smb2 v1.1.0/go.mod h1:8F1A4d5EZzrGu5R7PU163UcMRDJQl4FtcxjBfsY8TZE=
+github.com/jlaffaye/ftp v0.0.0-20220301011324-fed5bc26b7fa h1:7InYGRsFhz5j/oeSXxkPZ50P8rC9Ub2tDEQqYEqM+y0=
+github.com/jlaffaye/ftp v0.0.0-20220301011324-fed5bc26b7fa/go.mod h1:oZaomI+9/et52UBjvNU9LCIqmgt816+7ljXCx0EIPzo=
 github.com/jlaffaye/ftp v0.0.0-20220630165035-11536801d1ff h1:tN6UCYCBFNrPwvKf4RP9cIhGo6GcZ/IQTN8nqD7eCok=
 github.com/jlaffaye/ftp v0.0.0-20220630165035-11536801d1ff/go.mod h1:hhq4G4crv+nW2qXtNYcuzLeOudG92Ps37HEKeg2e3lE=
+github.com/jlaffaye/ftp v0.0.0-20220829015825-b85cf1edccd4 h1:8bWaY08VCoFn17gezYWKLhCwAJr2Er8tUOZCvDVshos=
+github.com/jlaffaye/ftp v0.0.0-20220829015825-b85cf1edccd4/go.mod h1:hhq4G4crv+nW2qXtNYcuzLeOudG92Ps37HEKeg2e3lE=
 github.com/jmoiron/sqlx v1.3.5 h1:vFFPA71p1o5gAeqtEAwLU4dnX2napprKtHr7PYIcN3g=
 github.com/jmoiron/sqlx v1.3.5/go.mod h1:nRVWtLre0KfCLJvgxzCsLVMogSvQ1zNJtpYr2Ccp0mQ=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=

@@ -19,10 +19,10 @@ func Perform(appCtx *appctx.AppContext, job interfaces.Job) (errs []error) {
 	}
 
 	if !job.IsBackupSafety() {
-		errs = job.DeleteOldBackups(appCtx)
+		errs = job.DeleteOldBackups(appCtx, false)
 	} else {
 		defer func() {
-			err := job.DeleteOldBackups(appCtx)
+			err := job.DeleteOldBackups(appCtx, false)
 			if err != nil {
 				errs = append(errs, err...)
 			}

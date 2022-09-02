@@ -152,8 +152,8 @@ func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext) []error {
-	return j.storages.DeleteOldBackups(appCtx, j)
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, full bool) []error {
+	return j.storages.DeleteOldBackups(appCtx, j, full)
 }
 
 func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
@@ -175,7 +175,10 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 		if initMeta {
 			appCtx.Log().Info("Incremental backup will be reinitialized")
-			// TODO Add backup dir full cleanup
+			errsList := j.DeleteOldBackups(appCtx, true)
+			if len(errsList) > 0 {
+				errs = append(errs, errsList...)
+			}
 		}
 
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
@@ -211,6 +214,115 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 			appCtx.Log().Errorf("Failed to delivery backup by job %s. Errors: %v", j.name, err)
 			errs = append(errs, err)
 		}
+	}
+
+	return
+}
+
+func (j *job) getMetadata(appCtx *appctx.AppContext, ofsPart string) (mtd metadata, initMeta bool, err error) {
+	var (
+		errs                                     []error
+		yearMetaFile, monthMetaFile, dayMetaFile io.Reader
+	)
+	mtd = make(metadata)
+
+	//year := misc.GetDateTimeNow("year")
+	moy := misc.GetDateTimeNow("moy")
+	dom := misc.GetDateTimeNow("dom")
+
+	initMeta = misc.GetDateTimeNow("doy") == misc.YearlyBackupDay
+
+	yearMetaFile, err, errs = j.getMetadataFile(ofsPart, "year.inc")
+	if len(errs) > 0 {
+		appCtx.Log().Warnf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
+	}
+	if err != nil {
+		appCtx.Log().Errorf("Failed to find backup year metadata by job %s. Error: %v", j.name, err)
+		initMeta = true
+	}
+
+	if !initMeta {
+		if !misc.Contains(misc.DecadesBackupDays, dom) {
+			dayMetaFile, err, errs = j.getMetadataFile(ofsPart, "day.inc")
+			if len(errs) > 0 {
+				appCtx.Log().Errorf("Unable to get day matadata from storages by job %s. Errors: %v", j.name, errs)
+			}
+			if err != nil {
+				appCtx.Log().Errorf("Failed to find backup day metadata by job %s", j.name)
+				return
+			} else {
+				mtd, err = j.readMetadata(appCtx, dayMetaFile)
+				if err != nil {
+					appCtx.Log().Errorf("Failed to read backup day metadata by job %s", j.name)
+					return
+				}
+			}
+		} else if moy != "1" {
+			monthMetaFile, err, errs = j.getMetadataFile(ofsPart, "month.inc")
+			if len(errs) > 0 {
+				appCtx.Log().Errorf("Unable to get month matadata from storages by job %s. Errors: %v", j.name, errs)
+			}
+			if err != nil {
+				appCtx.Log().Errorf("Failed to find backup month metadata by job %s", j.name)
+				return
+			} else {
+				mtd, err = j.readMetadata(appCtx, monthMetaFile)
+				if err != nil {
+					appCtx.Log().Errorf("Failed to read backup month metadata by job %s", j.name)
+					return
+				}
+			}
+		} else {
+			mtd, err = j.readMetadata(appCtx, yearMetaFile)
+			if err != nil {
+				appCtx.Log().Errorf("Failed to read backup year metadata by job %s", j.name)
+				return
+			}
+		}
+	}
+	return
+}
+
+// check and get metadata files (include remote storages)
+func (j *job) getMetadataFile(ofsPart, metadata string) (reader io.Reader, err error, getErrs []error) {
+
+	year := misc.GetDateTimeNow("year")
+
+	for i := len(j.storages) - 1; i >= 0; i-- {
+		st := j.storages[i]
+
+		reader, err = st.GetFileReader(path.Join(ofsPart, year, "inc_meta_info", metadata))
+		if err != nil {
+			// TODO Add storage name to err
+			if !errors.Is(err, fs.ErrNotExist) {
+				getErrs = append(getErrs, fmt.Errorf("Unable to get previous metadata from storage. Error: %s ", err))
+			}
+			continue
+		}
+		break
+	}
+
+	if reader == nil {
+		err = fs.ErrNotExist
+		return
+	}
+
+	return
+}
+
+// read metadata from file
+func (j *job) readMetadata(appCtx *appctx.AppContext, fileReader io.Reader) (mtd metadata, err error) {
+	mtd = make(metadata)
+
+	byteValue, err := io.ReadAll(fileReader)
+	if err != nil {
+		appCtx.Log().Errorf("Failed to read metadata file. Error: %s", err)
+		return
+	}
+
+	err = json.Unmarshal(byteValue, &mtd)
+	if err != nil {
+		appCtx.Log().Errorf("Failed to parse metadata file. Error: %s", err)
 	}
 
 	return
@@ -355,116 +467,6 @@ func (j *job) createTmpBackup(tmpBackupFile string, tgt target, prevMtd metadata
 		_, err = os.Create(path.Join(path.Dir(tmpBackupFile), path.Base(tmpBackupFile)+".init"))
 	}
 	return err
-}
-
-func (j *job) getMetadata(appCtx *appctx.AppContext, ofsPart string) (mtd metadata, initMeta bool, err error) {
-	var (
-		errs                                     []error
-		yearMetaFile, monthMetaFile, dayMetaFile fs.File
-	)
-	mtd = make(metadata)
-
-	//year := misc.GetDateTimeNow("year")
-	moy := misc.GetDateTimeNow("moy")
-	dom := misc.GetDateTimeNow("dom")
-
-	initMeta = misc.GetDateTimeNow("doy") == misc.YearlyBackupDay
-
-	yearMetaFile, err, errs = j.getMetadataFile(ofsPart, "year.inc")
-	if len(errs) > 0 {
-		appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
-	}
-	if err != nil {
-		appCtx.Log().Errorf("Failed to find backup year metadata by job %s. Error: %v", j.name, err)
-		initMeta = true
-	}
-
-	if !initMeta {
-		if !misc.Contains(misc.DecadesBackupDays, dom) {
-			dayMetaFile, err, errs = j.getMetadataFile(ofsPart, "day.inc")
-			if len(errs) > 0 {
-				appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
-			}
-			if err != nil {
-				appCtx.Log().Errorf("Failed to find backup day metadata by job %s", j.name)
-				return
-			} else {
-				mtd, err = j.readMetadata(appCtx, dayMetaFile)
-				if err != nil {
-					appCtx.Log().Errorf("Failed to read backup day metadata by job %s", j.name)
-					return
-				}
-			}
-		} else if moy != "1" {
-			monthMetaFile, err, errs = j.getMetadataFile(ofsPart, "month.inc")
-			if len(errs) > 0 {
-				appCtx.Log().Errorf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
-			}
-			if err != nil {
-				appCtx.Log().Errorf("Failed to find backup month metadata by job %s", j.name)
-				return
-			} else {
-				mtd, err = j.readMetadata(appCtx, monthMetaFile)
-				if err != nil {
-					appCtx.Log().Errorf("Failed to read backup month metadata by job %s", j.name)
-					return
-				}
-			}
-		} else {
-			mtd, err = j.readMetadata(appCtx, yearMetaFile)
-			if err != nil {
-				appCtx.Log().Errorf("Failed to read backup year metadata  by job %s", j.name)
-				return
-			}
-		}
-	}
-	return
-}
-
-// check and get metadata files (include remote storages)
-func (j *job) getMetadataFile(ofsPart, metadata string) (file fs.File, err error, getErrs []error) {
-
-	year := misc.GetDateTimeNow("year")
-
-	for i := len(j.storages) - 1; i >= 0; i-- {
-		st := j.storages[i]
-
-		file, err = st.GetFile(path.Join(ofsPart, year, "inc_meta_info", metadata))
-		if err != nil {
-			// TODO Add storage name to err
-			if !errors.Is(err, fs.ErrNotExist) {
-				getErrs = append(getErrs, fmt.Errorf("Unable to get previous metadata from storage. Error: %s ", err))
-			}
-			continue
-		}
-		break
-	}
-
-	if file == nil {
-		err = fs.ErrNotExist
-		return
-	}
-
-	_, err = file.Stat()
-	return
-}
-
-// read metadata from file
-func (j *job) readMetadata(appCtx *appctx.AppContext, file fs.File) (mtd metadata, err error) {
-	mtd = make(metadata)
-
-	byteValue, err := io.ReadAll(file)
-	if err != nil {
-		appCtx.Log().Errorf("Failed to read metadata file. Error: %s", err)
-		return
-	}
-
-	err = json.Unmarshal(byteValue, &mtd)
-	if err != nil {
-		appCtx.Log().Errorf("Failed to parse metadata file. Error: %s", err)
-	}
-
-	return
 }
 
 func (j *job) Close() error {

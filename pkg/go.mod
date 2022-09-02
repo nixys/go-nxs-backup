@@ -4,8 +4,11 @@ go 1.17
 
 require (
 	github.com/alexflint/go-arg v1.4.3
+	github.com/go-redis/redis/v8 v8.11.5
 	github.com/go-sql-driver/mysql v1.6.0
+	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hirochachacha/go-smb2 v1.1.0
+	github.com/jlaffaye/ftp v0.0.0-20220829015825-b85cf1edccd4
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/klauspost/pgzip v1.2.5
 	github.com/lib/pq v1.2.0
@@ -13,7 +16,6 @@ require (
 	github.com/nixys/nxs-go-appctx/v2 v2.0.0
 	github.com/nixys/nxs-go-conf v1.0.1
 	github.com/pkg/sftp v1.13.5-0.20211228200725-31aac3e1878d
-	github.com/prasad83/goftp v0.0.0-20210325080443-f57aaed46a32
 	github.com/vmware/go-nfs-client v0.0.0-20190605212624-d43b92724c1b
 	go.mongodb.org/mongo-driver v1.10.0
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
@@ -26,14 +28,11 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
-	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/go-cmp v0.5.6 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/jlaffaye/ftp v0.0.0-20220630165035-11536801d1ff // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
@@ -47,6 +46,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/prasad83/goftp v0.0.0-20210325080443-f57aaed46a32 // indirect
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/rs/xid v1.2.1 // indirect
 	github.com/secsy/goftp v0.0.0-20200609142545-aa2de14babf4 // indirect

@@ -1,7 +1,7 @@
 package interfaces
 
 import (
-	"io/fs"
+	"io"
 	"os"
 	"path"
 
@@ -17,8 +17,8 @@ type Storage interface {
 	SetBackupPath(path string)
 	SetRetention(r storage.Retention)
 	DeliveryBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs, bakType string) error
-	DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error
-	GetFile(path string) (fs.File, error)
+	DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error
+	GetFileReader(path string) (io.Reader, error)
 	Close() error
 	Clone() Storage
 }
@@ -29,9 +29,9 @@ func (s Storages) Len() int           { return len(s) }
 func (s Storages) Less(i, j int) bool { return s[i].IsLocal() < s[j].IsLocal() }
 func (s Storages) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
-func (s Storages) DeleteOldBackups(appCtx *appctx.AppContext, j Job) (errs []error) {
+func (s Storages) DeleteOldBackups(appCtx *appctx.AppContext, j Job, full bool) (errs []error) {
 	for _, st := range s {
-		err := st.DeleteOldBackups(appCtx, j.GetTargetOfsList(), j.GetType())
+		err := st.DeleteOldBackups(appCtx, j.GetTargetOfsList(), j.GetType(), full)
 		if err != nil {
 			errs = append(errs, err)
 		}

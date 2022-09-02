@@ -3,7 +3,7 @@ package webdav
 import (
 	"errors"
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
 	"path"
 	"time"
@@ -103,7 +103,7 @@ func (wd *WebDav) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakT
 	return nil
 }
 
-func (wd *WebDav) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
+func (wd *WebDav) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -207,7 +207,7 @@ func (wd *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
 	return nil, ErrorFileNotFound
 }
 
-func (wd *WebDav) GetFile(ofsPath string) (fs.File, error) {
+func (wd *WebDav) GetFileReader(ofsPath string) (io.Reader, error) {
 	//TODO implement me
 	panic("implement me")
 }

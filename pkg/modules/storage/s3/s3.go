@@ -3,7 +3,7 @@ package s3
 import (
 	"context"
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -85,7 +85,7 @@ func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType s
 	return nil
 }
 
-func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
+func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
 	var errs []error
 	objCh := make(chan minio.ObjectInfo)
@@ -163,7 +163,7 @@ func (s *S3) getObjectsPeriodicMap(ofsPartsList []string) (objs map[string][]min
 	return
 }
 
-func (s *S3) GetFile(ofsPath string) (fs.File, error) {
+func (s *S3) GetFileReader(ofsPath string) (io.Reader, error) {
 	//TODO implement me
 	panic("implement me")
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"time"
@@ -107,7 +106,7 @@ func (n *NFS) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType 
 	return nil
 }
 
-func (n *NFS) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
+func (n *NFS) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -211,7 +210,7 @@ func (n *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 	return nil, ErrorFileNotFound
 }
 
-func (n *NFS) GetFile(ofsPath string) (fs.File, error) {
+func (n *NFS) GetFileReader(ofsPath string) (io.Reader, error) {
 	//TODO implement me
 	panic("implement me")
 }

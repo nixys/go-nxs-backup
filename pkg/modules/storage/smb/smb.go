@@ -3,7 +3,6 @@ package smb
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"os"
 	"path"
@@ -142,7 +141,7 @@ func (s *SMB) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType 
 	return nil
 }
 
-func (s *SMB) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
+func (s *SMB) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -196,7 +195,7 @@ func (s *SMB) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string,
 	return nil
 }
 
-func (s *SMB) GetFile(ofsPath string) (fs.File, error) {
+func (s *SMB) GetFileReader(ofsPath string) (io.Reader, error) {
 	//TODO implement me
 	panic("implement me")
 }

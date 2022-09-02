@@ -51,12 +51,15 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 		if err != nil {
 			return
 		}
-		if err = l.deliveryBackupMetadata(appCtx, tmpBackupFile, mtdDstPath); err != nil {
-			return
-		}
 	} else {
 		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, l.BackupPath, l.Retention)
 		if err != nil {
+			return
+		}
+	}
+
+	if mtdDstPath != "" {
+		if err = l.deliveryBackupMetadata(appCtx, tmpBackupFile, mtdDstPath); err != nil {
 			return
 		}
 	}
@@ -92,13 +95,9 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
 			return err
 		}
+		_ = os.Remove(dst)
 		if err = os.Symlink(src, dst); err != nil {
-			if errors.Is(err, fs.ErrExist) {
-				appCtx.Log().Infof("Symlink %s exist", dst)
-				err = nil
-			} else {
-				return err
-			}
+			return err
 		}
 		appCtx.Log().Infof("Successfully created symlink %s", dst)
 	}
@@ -109,23 +108,24 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 func (l *Local) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile, mtdDstPath string) error {
 	mtdSrcPath := tmpBackupFile + ".inc"
 
-	mtdSrc, err := os.Open(mtdSrcPath)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = mtdSrc.Close() }()
-
-	err = os.MkdirAll(path.Dir(mtdDstPath), os.ModePerm)
+	err := os.MkdirAll(path.Dir(mtdDstPath), os.ModePerm)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
 		return err
 	}
 
+	_ = os.Remove(mtdDstPath)
 	mtdDst, err := os.Create(mtdDstPath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = mtdDst.Close() }()
+
+	mtdSrc, err := os.Open(mtdSrcPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = mtdSrc.Close() }()
 
 	_, err = io.Copy(mtdDst, mtdSrc)
 	if err != nil {
@@ -137,7 +137,7 @@ func (l *Local) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile,
 	return nil
 }
 
-func (l *Local) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
+func (l *Local) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -229,7 +229,7 @@ func (l *Local) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []strin
 	return nil
 }
 
-func (l *Local) GetFile(ofsPath string) (fs.File, error) {
+func (l *Local) GetFileReader(ofsPath string) (io.Reader, error) {
 	fp, err := filepath.EvalSymlinks(path.Join(l.BackupPath, ofsPath))
 	if err != nil {
 		return nil, err

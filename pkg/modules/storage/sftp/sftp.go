@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"io"
-	"io/fs"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -141,7 +140,7 @@ func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType
 	return nil
 }
 
-func (s *SFTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string) error {
+func (s *SFTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
 	var errs []error
 	curDate := time.Now()
@@ -195,7 +194,7 @@ func (s *SFTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string
 	return nil
 }
 
-func (s *SFTP) GetFile(ofsPath string) (fs.File, error) {
+func (s *SFTP) GetFileReader(ofsPath string) (io.Reader, error) {
 	//TODO implement me
 	panic("implement me")
 }

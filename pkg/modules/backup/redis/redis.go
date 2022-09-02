@@ -128,8 +128,8 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext) []error {
-	return j.storages.DeleteOldBackups(appCtx, j)
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, full bool) []error {
+	return j.storages.DeleteOldBackups(appCtx, j, full)
 }
 
 func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
