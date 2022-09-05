@@ -9,6 +9,7 @@ import (
 
 	"nxs-backup/ctx"
 	"nxs-backup/ctx/args"
+	"nxs-backup/modules/backend/logformatter"
 	"nxs-backup/modules/cmd"
 )
 
@@ -30,8 +31,7 @@ func main() {
 		TermSignals:      []os.Signal{syscall.SIGTERM, syscall.SIGINT},
 		ReloadSignals:    []os.Signal{syscall.SIGHUP},
 		LogrotateSignals: []os.Signal{syscall.SIGUSR1},
-		//LogFormatter:     &logrus.JSONFormatter{},
-		//LogFormatter: &logrus.TextFormatter{},
+		LogFormatter:     &logformatter.BackupLogFormatter{},
 	})
 	if err != nil {
 		fmt.Println(err)

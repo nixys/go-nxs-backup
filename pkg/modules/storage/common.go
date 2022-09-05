@@ -145,8 +145,9 @@ func GetIncBackupDstAndLinks(tmpBackupFile, ofs, bakPath string) (bakDst, mtdDst
 	return
 }
 
-func GetDescBackupDstList(bakFile, ofs, bakPath string, retention Retention) (dst []string) {
+func GetDescBackupDstList(tmpBackupFile, ofs, bakPath string, retention Retention) (dst []string) {
 
+	bakFile := path.Base(tmpBackupFile)
 	basePath := strings.TrimPrefix(path.Join(bakPath, ofs), "/")
 
 	if misc.GetDateTimeNow("dom") == misc.MonthlyBackupDay && retention.Months > 0 {

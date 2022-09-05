@@ -29,9 +29,14 @@ func (s Storages) Len() int           { return len(s) }
 func (s Storages) Less(i, j int) bool { return s[i].IsLocal() < s[j].IsLocal() }
 func (s Storages) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
-func (s Storages) DeleteOldBackups(appCtx *appctx.AppContext, j Job, full bool) (errs []error) {
+func (s Storages) DeleteOldBackups(appCtx *appctx.AppContext, j Job, ofsPath string) (errs []error) {
+	var err error
 	for _, st := range s {
-		err := st.DeleteOldBackups(appCtx, j.GetTargetOfsList(), j.GetType(), full)
+		if ofsPath != "" {
+			err = st.DeleteOldBackups(appCtx, []string{ofsPath}, j.GetType(), true)
+		} else {
+			err = st.DeleteOldBackups(appCtx, j.GetTargetOfsList(), j.GetType(), false)
+		}
 		if err != nil {
 			errs = append(errs, err)
 		}

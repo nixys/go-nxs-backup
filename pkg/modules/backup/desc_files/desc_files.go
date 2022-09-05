@@ -147,8 +147,8 @@ func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, full bool) []error {
-	return j.storages.DeleteOldBackups(appCtx, j, full)
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) []error {
+	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
 }
 
 func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {

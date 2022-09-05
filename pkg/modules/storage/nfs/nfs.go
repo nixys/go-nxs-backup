@@ -77,7 +77,7 @@ func (n *NFS) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType 
 	}
 	defer source.Close()
 
-	remotePaths := GetDescBackupDstList(path.Base(tmpBackup), ofs, n.BackupPath, n.Retention)
+	remotePaths := GetDescBackupDstList(tmpBackup, ofs, n.BackupPath, n.Retention)
 
 	for _, dstPath := range remotePaths {
 		// Make remote directories

@@ -95,9 +95,9 @@ func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs strin
 	}
 
 	if bakType == misc.IncBackupType {
-		bakRemPaths, mtdRemPaths = GetIncBackupDstList(path.Base(tmpBackupFile), ofs, f.bakPath)
+		bakRemPaths, mtdRemPaths = GetIncBackupDstList(tmpBackupFile, ofs, f.bakPath)
 	} else {
-		bakRemPaths = GetDescBackupDstList(path.Base(tmpBackupFile), ofs, f.bakPath, f.Retention)
+		bakRemPaths = GetDescBackupDstList(tmpBackupFile, ofs, f.bakPath, f.Retention)
 	}
 
 	if len(mtdRemPaths) > 0 {
@@ -276,12 +276,21 @@ func (f *FTP) mkDir(dstPath string) error {
 		return nil
 	}
 
+	if dstPath != f.bakPath {
+		err := f.mkDir(path.Dir(dstPath))
+		if err != nil {
+			return err
+		}
+	}
 	err := f.conn.MakeDir(dstPath)
 	if err != nil {
-		return err
+		rx := regexp.MustCompile("exist")
+		if rx.MatchString(err.Error()) {
+			err = nil
+		}
 	}
 
-	return nil
+	return err
 }
 
 func (f *FTP) GetFileReader(ofsPath string) (io.Reader, error) {

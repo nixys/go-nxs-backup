@@ -3,7 +3,6 @@ package inc_files
 import (
 	"archive/tar"
 	"encoding/json"
-	"errors"
 	"fmt"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"io"
@@ -152,8 +151,8 @@ func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, full bool) []error {
-	return j.storages.DeleteOldBackups(appCtx, j, full)
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) []error {
+	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
 }
 
 func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
@@ -175,7 +174,8 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 
 		if initMeta {
 			appCtx.Log().Info("Incremental backup will be reinitialized")
-			errsList := j.DeleteOldBackups(appCtx, true)
+
+			errsList := j.DeleteOldBackups(appCtx, ofsPart)
 			if len(errsList) > 0 {
 				errs = append(errs, errsList...)
 			}
@@ -237,7 +237,7 @@ func (j *job) getMetadata(appCtx *appctx.AppContext, ofsPart string) (mtd metada
 		appCtx.Log().Warnf("Unable to get matadata from storages by job %s. Errors: %v", j.name, errs)
 	}
 	if err != nil {
-		appCtx.Log().Errorf("Failed to find backup year metadata by job %s. Error: %v", j.name, err)
+		appCtx.Log().Warnf("Failed to find backup year metadata by job %s. Error: %v", j.name, err)
 		initMeta = true
 	}
 
@@ -294,9 +294,7 @@ func (j *job) getMetadataFile(ofsPart, metadata string) (reader io.Reader, err e
 		reader, err = st.GetFileReader(path.Join(ofsPart, year, "inc_meta_info", metadata))
 		if err != nil {
 			// TODO Add storage name to err
-			if !errors.Is(err, fs.ErrNotExist) {
-				getErrs = append(getErrs, fmt.Errorf("Unable to get previous metadata from storage. Error: %s ", err))
-			}
+			getErrs = append(getErrs, fmt.Errorf("Unable to get previous metadata from storage. Error: %s ", err))
 			continue
 		}
 		break
@@ -304,7 +302,6 @@ func (j *job) getMetadataFile(ofsPart, metadata string) (reader io.Reader, err e
 
 	if reader == nil {
 		err = fs.ErrNotExist
-		return
 	}
 
 	return

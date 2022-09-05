@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -72,7 +71,7 @@ func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType s
 		return err
 	}
 
-	bucketPaths := GetDescBackupDstList(filepath.Base(tmpBackup), ofs, s.BackupPath, s.Retention)
+	bucketPaths := GetDescBackupDstList(tmpBackup, ofs, s.BackupPath, s.Retention)
 
 	for _, bucketPath := range bucketPaths {
 		n, err := s.Client.PutObject(context.Background(), s.BucketName, bucketPath, source, sourceStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
