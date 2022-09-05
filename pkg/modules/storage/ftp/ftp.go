@@ -269,6 +269,7 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 
 	return errs.ErrorOrNil()
 }
+
 func (f *FTP) mkDir(dstPath string) error {
 
 	dstPath = path.Clean(dstPath)

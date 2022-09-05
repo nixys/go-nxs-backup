@@ -1,24 +1,31 @@
 package nfs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 
 	"nxs-backup/interfaces"
+	"nxs-backup/misc"
 	. "nxs-backup/modules/storage"
 )
 
 type NFS struct {
-	Target     *nfs.Target
-	BackupPath string
+	target     *nfs.Target
+	backupPath string
 	Retention
 }
 
@@ -55,109 +62,192 @@ func Init(params Params) (*NFS, error) {
 	}
 
 	return &NFS{
-		Target: target,
+		target: target,
 	}, nil
 }
 
 func (n *NFS) IsLocal() int { return 0 }
 
 func (n *NFS) SetBackupPath(path string) {
-	n.BackupPath = path
+	n.backupPath = path
 }
 
 func (n *NFS) SetRetention(r Retention) {
 	n.Retention = r
 }
 
-func (n *NFS) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
+func (n *NFS) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) error {
+	var bakRemPaths, mtdRemPaths []string
 
-	source, err := os.Open(tmpBackup)
-	if err != nil {
-		return err
+	if bakType == misc.IncBackupType {
+		bakRemPaths, mtdRemPaths = GetIncBackupDstList(tmpBackupFile, ofs, n.backupPath)
+	} else {
+		bakRemPaths = GetDescBackupDstList(tmpBackupFile, ofs, n.backupPath, n.Retention)
 	}
-	defer source.Close()
 
-	remotePaths := GetDescBackupDstList(tmpBackup, ofs, n.BackupPath, n.Retention)
+	if len(mtdRemPaths) > 0 {
+		for _, dstPath := range mtdRemPaths {
+			if err := n.copy(appCtx, dstPath, tmpBackupFile+".inc"); err != nil {
+				return err
+			}
+		}
+	}
 
-	for _, dstPath := range remotePaths {
-		// Make remote directories
-		dstDir := path.Dir(dstPath)
-		err = n.mkDir(dstDir)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
+	for _, dstPath := range bakRemPaths {
+		if err := n.copy(appCtx, dstPath, tmpBackupFile); err != nil {
 			return err
 		}
-
-		destination, err := n.Target.OpenFile(dstPath, 0666)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to create destination file '%s': '%s'", dstDir, err)
-			return err
-		}
-		defer destination.Close()
-
-		_, err = io.Copy(destination, source)
-		if err != nil {
-			appCtx.Log().Errorf("Unable to make copy '%s': '%s'", dstDir, err)
-			return err
-		}
-		appCtx.Log().Infof("Successfully copied temp backup to %s", dstPath)
 	}
 
 	return nil
 }
 
+func (n *NFS) copy(appCtx *appctx.AppContext, dst, src string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to open file: '%s'", err)
+		return err
+	}
+	defer func() { _ = srcFile.Close() }()
+
+	// Make remote directories
+	dstDir := path.Dir(dst)
+	err = n.mkDir(dstDir)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
+		return err
+	}
+
+	destination, err := n.target.OpenFile(dst, 0666)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to create destination file '%s': '%s'", dstDir, err)
+		return err
+	}
+	defer func() { _ = destination.Close() }()
+
+	_, err = io.Copy(destination, srcFile)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to make copy '%s': '%s'", dstDir, err)
+		return err
+	}
+	appCtx.Log().Infof("Successfully copied temp backup to %s", dst)
+	return nil
+}
+
 func (n *NFS) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
-	var errs []error
+	var errs *multierror.Error
+
+	for _, ofsPart := range ofsPartsList {
+		if bakType == misc.IncBackupType {
+			if err := n.deleteIncBackup(appCtx, ofsPart, full); err != nil {
+				errs = multierror.Append(errs, err)
+			}
+		} else {
+			if err := n.deleteDescBackup(appCtx, ofsPart); err != nil {
+				errs = multierror.Append(errs, err)
+			}
+		}
+	}
+
+	return errs.ErrorOrNil()
+}
+
+func (n *NFS) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error {
+	var errs *multierror.Error
 	curDate := time.Now()
-	// TODO delete old inc backups
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
-		for _, ofsPart := range ofsPartsList {
-			bakDir := path.Join(n.BackupPath, ofsPart, period)
-			files, err := n.Target.ReadDirPlus(bakDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
-				return err
+		bakDir := path.Join(n.backupPath, ofsPart, period)
+		files, err := n.target.ReadDirPlus(bakDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			return err
+		}
+
+		for _, file := range files {
+
+			fileDate := file.ModTime()
+			var retentionDate time.Time
+
+			switch period {
+			case "daily":
+				retentionDate = fileDate.AddDate(0, 0, n.Retention.Days)
+			case "weekly":
+				retentionDate = fileDate.AddDate(0, 0, n.Retention.Weeks*7)
+			case "monthly":
+				retentionDate = fileDate.AddDate(0, n.Retention.Months, 0)
 			}
 
-			for _, file := range files {
-
-				fileDate := file.ModTime()
-				var retentionDate time.Time
-
-				switch period {
-				case "daily":
-					retentionDate = fileDate.AddDate(0, 0, n.Retention.Days)
-				case "weekly":
-					retentionDate = fileDate.AddDate(0, 0, n.Retention.Weeks*7)
-				case "monthly":
-					retentionDate = fileDate.AddDate(0, n.Retention.Months, 0)
+			retentionDate = retentionDate.Truncate(24 * time.Hour)
+			if curDate.After(retentionDate) {
+				err = n.target.Remove(path.Join(bakDir, file.Name()))
+				if err != nil {
+					appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+						file.Name(), bakDir, err)
+					errs = multierror.Append(errs, err)
+				} else {
+					appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
+			}
+		}
+	}
 
-				retentionDate = retentionDate.Truncate(24 * time.Hour)
-				if curDate.After(retentionDate) {
-					err = n.Target.Remove(path.Join(bakDir, file.Name()))
-					if err != nil {
-						appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
-							file.Name(), bakDir, err)
-						errs = append(errs, err)
-					} else {
-						appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+	return errs
+}
+
+func (n *NFS) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bool) error {
+	var errs *multierror.Error
+
+	if full {
+		backupDir := path.Join(n.backupPath, ofsPart)
+
+		err := n.target.RemoveAll(backupDir)
+		if err != nil {
+			appCtx.Log().Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			errs = multierror.Append(errs, err)
+		}
+	} else {
+		intMoy, _ := strconv.Atoi(misc.GetDateTimeNow("moy"))
+		lastMonth := intMoy - n.Months
+
+		var year string
+		if lastMonth > 0 {
+			year = misc.GetDateTimeNow("year")
+		} else {
+			year = misc.GetDateTimeNow("previous_year")
+			lastMonth += 12
+		}
+
+		backupDir := path.Join(n.backupPath, ofsPart, year)
+
+		dirs, err := n.target.ReadDirPlus(backupDir)
+		if err != nil {
+			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			return err
+		}
+
+		for _, dir := range dirs {
+			dirName := dir.Name()
+			rx := regexp.MustCompile("month_\\d\\d")
+			if rx.MatchString(dirName) {
+				dirParts := strings.Split(dirName, "_")
+				dirMonth, _ := strconv.Atoi(dirParts[1])
+				if dirMonth < lastMonth {
+					if err = n.target.RemoveAll(path.Join(backupDir, dirName)); err != nil {
+						appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+							dir.Name, backupDir, err)
+						errs = multierror.Append(errs, err)
 					}
 				}
 			}
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("some errors on file deletion")
-	}
-
-	return nil
+	return errs.ErrorOrNil()
 }
 
 func (n *NFS) mkDir(dstPath string) error {
@@ -181,7 +271,7 @@ func (n *NFS) mkDir(dstPath string) error {
 	if err != nil {
 		return err
 	}
-	_, err = n.Target.Mkdir(dstPath, os.ModePerm)
+	_, err = n.target.Mkdir(dstPath, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -194,7 +284,7 @@ func (n *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 	dir := path.Dir(dstPath)
 	base := path.Base(dstPath)
 
-	files, err := n.Target.ReadDirPlus(dir)
+	files, err := n.target.ReadDirPlus(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrorFileNotFound
@@ -211,12 +301,24 @@ func (n *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 }
 
 func (n *NFS) GetFileReader(ofsPath string) (io.Reader, error) {
-	//TODO implement me
-	panic("implement me")
+
+	file, err := n.target.Open(path.Join(n.backupPath, ofsPath))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	var buf []byte
+	buf, err = ioutil.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes.NewReader(buf), err
 }
 
 func (n *NFS) Close() error {
-	return n.Target.Close()
+	return n.target.Close()
 }
 
 func (n *NFS) Clone() interfaces.Storage {
