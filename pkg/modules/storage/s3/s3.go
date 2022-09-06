@@ -1,26 +1,31 @@
 package s3
 
 import (
+	"bytes"
 	"context"
-	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
+	"nxs-backup/misc"
 	. "nxs-backup/modules/storage"
 )
 
 type S3 struct {
-	Client     *minio.Client
-	BucketName string
-	BackupPath string
+	client     *minio.Client
+	bucketName string
+	backupPath string
 	Retention
 }
 
@@ -43,42 +48,70 @@ func Init(params Params) (*S3, error) {
 	}
 
 	return &S3{
-		Client:     s3Client,
-		BucketName: params.BucketName,
+		client:     s3Client,
+		bucketName: params.BucketName,
 	}, nil
 }
 
 func (s *S3) IsLocal() int { return 0 }
 
 func (s *S3) SetBackupPath(path string) {
-	s.BackupPath = path
+	s.backupPath = path
 }
 
 func (s *S3) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
+func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) error {
+	var bakRemPaths, mtdRemPaths []string
 
-	source, err := os.Open(tmpBackup)
+	source, err := os.Open(tmpBackupFile)
 	if err != nil {
 		return err
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	sourceStat, err := source.Stat()
 	if err != nil {
 		return err
 	}
 
-	bucketPaths := GetDescBackupDstList(tmpBackup, ofs, s.BackupPath, s.Retention)
+	if bakType == misc.IncBackupType {
+		bakRemPaths, mtdRemPaths = GetIncBackupDstList(tmpBackupFile, ofs, s.backupPath)
+	} else {
+		bakRemPaths = GetDescBackupDstList(tmpBackupFile, ofs, s.backupPath, s.Retention)
+	}
 
-	for _, bucketPath := range bucketPaths {
-		n, err := s.Client.PutObject(context.Background(), s.BucketName, bucketPath, source, sourceStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	if len(mtdRemPaths) > 0 {
+		var mtdSrc *os.File
+		mtdSrc, err = os.Open(tmpBackupFile + ".inc")
 		if err != nil {
 			return err
 		}
-		appCtx.Log().Infof("Successfully created object '%s' in bucket %s", n.Key, n.Bucket)
+		defer func() { _ = mtdSrc.Close() }()
+
+		var mtdSrcStat os.FileInfo
+		mtdSrcStat, err = source.Stat()
+		if err != nil {
+			return err
+		}
+
+		for _, bucketPath := range mtdRemPaths {
+			_, err = s.client.PutObject(context.Background(), s.bucketName, bucketPath, mtdSrc, mtdSrcStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+			if err != nil {
+				return err
+			}
+			appCtx.Log().Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
+		}
+	}
+
+	for _, bucketPath := range bakRemPaths {
+		_, err = s.client.PutObject(context.Background(), s.bucketName, bucketPath, source, sourceStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+		if err != nil {
+			return err
+		}
+		appCtx.Log().Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
 	}
 
 	return nil
@@ -86,85 +119,92 @@ func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType s
 
 func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
 
-	var errs []error
+	var errs *multierror.Error
+	var objsToDel []minio.ObjectInfo
+
 	objCh := make(chan minio.ObjectInfo)
 	curDate := time.Now()
-	// TODO delete old inc backups
-
-	objMap, err := s.getObjectsPeriodicMap(ofsPartsList)
-	if err != nil {
-		appCtx.Log().Errorf("Failed get objects: '%s'", err)
-		return err
-	}
 
 	// Send object that are needed to be removed to objCh
 	go func() {
 		defer close(objCh)
-		for _, period := range []string{"daily", "weekly", "monthly"} {
+		for _, ofs := range ofsPartsList {
+			backupDir := path.Join(s.backupPath, ofs)
+			basePath := strings.TrimPrefix(backupDir, "/")
 
-			for _, obj := range objMap[period] {
-
-				fileDate := obj.LastModified
-				var retentionDate time.Time
-
-				switch period {
-				case "daily":
-					retentionDate = fileDate.AddDate(0, 0, s.Retention.Days)
-				case "weekly":
-					retentionDate = fileDate.AddDate(0, 0, s.Retention.Weeks*7)
-				case "monthly":
-					retentionDate = fileDate.AddDate(0, s.Retention.Months, 0)
+			for object := range s.client.ListObjects(context.Background(), s.bucketName, minio.ListObjectsOptions{Recursive: true, Prefix: basePath}) {
+				if object.Err != nil {
+					appCtx.Log().Errorf("Failed get objects: '%s'", object.Err)
+					errs = multierror.Append(errs, object.Err)
 				}
 
-				retentionDate = retentionDate.Truncate(24 * time.Hour)
-				if curDate.After(retentionDate) {
-					objCh <- obj
-					appCtx.Log().Infof("Object '%s' to be removed from bucket '%s'", obj.Key, s.BucketName)
+				if bakType == misc.IncBackupType {
+					if full {
+						objsToDel = append(objsToDel, object)
+					} else {
+						intMoy, _ := strconv.Atoi(misc.GetDateTimeNow("moy"))
+						lastMonth := intMoy - s.Months
+
+						var year string
+						if lastMonth > 0 {
+							year = misc.GetDateTimeNow("year")
+						} else {
+							year = misc.GetDateTimeNow("previous_year")
+							lastMonth += 12
+						}
+						rx := regexp.MustCompile(year + "/month_\\d\\d")
+						if rx.MatchString(object.Key) {
+							dirParts := strings.Split(path.Base(object.Key), "_")
+							dirMonth, _ := strconv.Atoi(dirParts[1])
+							if dirMonth < lastMonth {
+								objsToDel = append(objsToDel, object)
+							}
+						}
+					}
+				} else {
+					fileDate := object.LastModified
+					var retentionDate time.Time
+
+					if strings.Contains(object.Key, "daily") {
+						retentionDate = fileDate.AddDate(0, 0, s.Retention.Days)
+					}
+					if strings.Contains(object.Key, "weekly") {
+						retentionDate = fileDate.AddDate(0, 0, s.Retention.Weeks*7)
+					}
+					if strings.Contains(object.Key, "monthly") {
+						retentionDate = fileDate.AddDate(0, s.Retention.Months, 0)
+					}
+					retentionDate = retentionDate.Truncate(24 * time.Hour)
+					if curDate.After(retentionDate) {
+						objsToDel = append(objsToDel, object)
+					}
 				}
 			}
 		}
 	}()
 
-	for rErr := range s.Client.RemoveObjects(context.Background(), s.BucketName, objCh, minio.RemoveObjectsOptions{GovernanceBypass: true}) {
+	for rErr := range s.client.RemoveObjects(context.Background(), s.bucketName, objCh, minio.RemoveObjectsOptions{GovernanceBypass: true}) {
 		appCtx.Log().Errorf("Error detected during object deletion: '%s'", rErr)
-		errs = append(errs, rErr.Err)
+		errs = multierror.Append(errs, rErr.Err)
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("some errors on file deletion")
-	}
-
-	return nil
-}
-
-func (s *S3) getObjectsPeriodicMap(ofsPartsList []string) (objs map[string][]minio.ObjectInfo, err error) {
-	objs = make(map[string][]minio.ObjectInfo)
-
-	for _, ofs := range ofsPartsList {
-		basePath := strings.TrimPrefix(path.Join(s.BackupPath, ofs), "/")
-		for object := range s.Client.ListObjects(context.Background(), s.BucketName, minio.ListObjectsOptions{Recursive: true, Prefix: basePath}) {
-			if object.Err != nil {
-				err = object.Err
-				return
-			}
-
-			if strings.Contains(object.Key, "daily") {
-				objs["daily"] = append(objs["daily"], object)
-			}
-			if strings.Contains(object.Key, "weekly") {
-				objs["weekly"] = append(objs["weekly"], object)
-			}
-			if strings.Contains(object.Key, "monthly") {
-				objs["monthly"] = append(objs["monthly"], object)
-			}
-		}
-	}
-	return
+	return errs.ErrorOrNil()
 }
 
 func (s *S3) GetFileReader(ofsPath string) (io.Reader, error) {
-	//TODO implement me
-	panic("implement me")
+	o, err := s.client.GetObject(context.Background(), s.bucketName, ofsPath, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = o.Close() }()
+
+	var buf []byte
+	buf, err = ioutil.ReadAll(o)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes.NewReader(buf), err
 }
 
 func (s *S3) Close() error {

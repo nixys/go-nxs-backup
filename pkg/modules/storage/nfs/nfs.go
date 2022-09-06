@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path"
@@ -134,19 +135,18 @@ func (n *NFS) copy(appCtx *appctx.AppContext, dst, src string) error {
 	return nil
 }
 
-func (n *NFS) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
+func (n *NFS) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) (err error) {
 
 	var errs *multierror.Error
 
 	for _, ofsPart := range ofsPartsList {
 		if bakType == misc.IncBackupType {
-			if err := n.deleteIncBackup(appCtx, ofsPart, full); err != nil {
-				errs = multierror.Append(errs, err)
-			}
+			err = n.deleteIncBackup(appCtx, ofsPart, full)
 		} else {
-			if err := n.deleteDescBackup(appCtx, ofsPart); err != nil {
-				errs = multierror.Append(errs, err)
-			}
+			err = n.deleteDescBackup(appCtx, ofsPart)
+		}
+		if err != nil {
+			errs = multierror.Append(errs, err)
 		}
 	}
 
@@ -262,7 +262,7 @@ func (n *NFS) mkDir(dstPath string) error {
 			return nil
 		}
 		return errors.New(fmt.Sprintf("%s is a file not a directory", dstPath))
-	} else if err != ErrorFileNotFound {
+	} else if !errors.Is(fs.ErrNotExist, err) {
 		return fmt.Errorf("mkdir %q failed: %w", dstPath, err)
 	}
 
@@ -286,9 +286,6 @@ func (n *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 
 	files, err := n.target.ReadDirPlus(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrorFileNotFound
-		}
 		return nil, err
 	}
 
@@ -297,7 +294,7 @@ func (n *NFS) getInfo(dstPath string) (os.FileInfo, error) {
 			return file, nil
 		}
 	}
-	return nil, ErrorFileNotFound
+	return nil, fs.ErrNotExist
 }
 
 func (n *NFS) GetFileReader(ofsPath string) (io.Reader, error) {

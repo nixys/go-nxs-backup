@@ -23,8 +23,8 @@ import (
 )
 
 type FTP struct {
-	conn    *ftp.ServerConn
-	bakPath string
+	conn       *ftp.ServerConn
+	backupPath string
 	Retention
 	params Params
 }
@@ -80,7 +80,7 @@ func (f *FTP) updateConn() error {
 func (f *FTP) IsLocal() int { return 0 }
 
 func (f *FTP) SetBackupPath(path string) {
-	f.bakPath = path
+	f.backupPath = path
 }
 
 func (f *FTP) SetRetention(r Retention) {
@@ -95,9 +95,9 @@ func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs strin
 	}
 
 	if bakType == misc.IncBackupType {
-		bakRemPaths, mtdRemPaths = GetIncBackupDstList(tmpBackupFile, ofs, f.bakPath)
+		bakRemPaths, mtdRemPaths = GetIncBackupDstList(tmpBackupFile, ofs, f.backupPath)
 	} else {
-		bakRemPaths = GetDescBackupDstList(tmpBackupFile, ofs, f.bakPath, f.Retention)
+		bakRemPaths = GetDescBackupDstList(tmpBackupFile, ofs, f.backupPath, f.Retention)
 	}
 
 	if len(mtdRemPaths) > 0 {
@@ -142,22 +142,21 @@ func (f *FTP) copy(appCtx *appctx.AppContext, dst, src string) error {
 	return nil
 }
 
-func (f *FTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
+func (f *FTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) (err error) {
 	var errs *multierror.Error
 
-	if err := f.updateConn(); err != nil {
+	if err = f.updateConn(); err != nil {
 		return err
 	}
 
 	for _, ofsPart := range ofsPartsList {
 		if bakType == misc.IncBackupType {
-			if err := f.deleteIncBackup(appCtx, ofsPart, full); err != nil {
-				errs = multierror.Append(errs, err)
-			}
+			err = f.deleteIncBackup(appCtx, ofsPart, full)
 		} else {
-			if err := f.deleteDescBackup(appCtx, ofsPart); err != nil {
-				errs = multierror.Append(errs, err)
-			}
+			err = f.deleteDescBackup(appCtx, ofsPart)
+		}
+		if err != nil {
+			errs = multierror.Append(errs, err)
 		}
 	}
 
@@ -169,7 +168,7 @@ func (f *FTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 	curDate := time.Now()
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
-		bakDir := path.Join(f.bakPath, ofsPart, period)
+		bakDir := path.Join(f.backupPath, ofsPart, period)
 		files, err := f.conn.List(bakDir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -214,7 +213,7 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 	var errs *multierror.Error
 
 	if full {
-		backupDir := path.Join(f.bakPath, ofsPart)
+		backupDir := path.Join(f.backupPath, ofsPart)
 
 		err := f.conn.ChangeDir(backupDir)
 		if err != nil {
@@ -243,16 +242,15 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 			lastMonth += 12
 		}
 
-		backupDir := path.Join(f.bakPath, ofsPart, year)
+		backupDir := path.Join(f.backupPath, ofsPart, year)
 
 		dirs, err := f.conn.List(backupDir)
 		if err != nil {
 			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
-
+		rx := regexp.MustCompile("month_\\d\\d")
 		for _, dir := range dirs {
-			rx := regexp.MustCompile("month_\\d\\d")
 			if rx.MatchString(dir.Name) {
 				dirParts := strings.Split(dir.Name, "_")
 				dirMonth, _ := strconv.Atoi(dirParts[1])
@@ -277,7 +275,7 @@ func (f *FTP) mkDir(dstPath string) error {
 		return nil
 	}
 
-	if dstPath != f.bakPath {
+	if dstPath != f.backupPath {
 		err := f.mkDir(path.Dir(dstPath))
 		if err != nil {
 			return err
@@ -299,7 +297,7 @@ func (f *FTP) GetFileReader(ofsPath string) (io.Reader, error) {
 		return nil, err
 	}
 
-	r, err := f.conn.Retr(path.Join(f.bakPath, ofsPath))
+	r, err := f.conn.Retr(path.Join(f.backupPath, ofsPath))
 	if err != nil {
 		rx := regexp.MustCompile("550|not found|unavailable")
 		if rx.MatchString(err.Error()) {

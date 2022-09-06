@@ -88,12 +88,6 @@ func (s *SMB) SetRetention(r Retention) {
 }
 
 func (s *SMB) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
-	srcFile, err := os.Open(tmpBackup)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
-		return err
-	}
-	defer srcFile.Close()
 
 	dstPath, links, err := GetDescBackupDstAndLinks(path.Base(tmpBackup), ofs, s.BackupPath, s.Retention)
 	if err != nil {
@@ -115,6 +109,13 @@ func (s *SMB) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType 
 		return err
 	}
 	defer dstFile.Close()
+
+	srcFile, err := os.Open(tmpBackup)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
+		return err
+	}
+	defer srcFile.Close()
 
 	_, err = io.Copy(dstFile, srcFile)
 	if err != nil {
