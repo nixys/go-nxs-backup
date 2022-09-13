@@ -8,20 +8,19 @@ import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/ctx"
-	"nxs-backup/ctx/args"
 	"nxs-backup/modules/backend/logformatter"
 	"nxs-backup/modules/cmd"
 )
 
 func main() {
 
-	subCmds := args.SubCmds{
+	subCmds := ctx.SubCmds{
 		"start":   cmd.Start,
 		"testCfg": cmd.TestConfig,
 	}
 
 	// Read command line arguments
-	a := args.Read(subCmds)
+	a := ctx.ReadArgs(subCmds)
 
 	// Init appctx
 	appCtx, err := appctx.ContextInit(appctx.Settings{

@@ -4,11 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"nxs-backup/misc"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"nxs-backup/misc"
 )
 
 type Retention struct {

@@ -2,17 +2,18 @@ package desc_files
 
 import (
 	"fmt"
-	"nxs-backup/modules/backend/targz"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/backend/targz"
 )
 
 type job struct {
@@ -147,7 +148,7 @@ func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) []error {
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
 	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
 }
 
@@ -163,7 +164,8 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
+func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
 
@@ -171,7 +173,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 		err := os.MkdirAll(path.Dir(tmpBackupFile), os.ModePerm)
 		if err != nil {
 			appCtx.Log().Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", j.name, err)
-			errs = append(errs, err)
+			errs = multierror.Append(errs, err)
 			continue
 		}
 
@@ -187,7 +189,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 			err = j.storages.Delivery(appCtx, j)
 			if err != nil {
 				appCtx.Log().Errorf("Failed to delivery backup by job %s. Errors: %v", j.name, err)
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 			}
 		}
 	}
@@ -196,11 +198,11 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 		err := j.storages.Delivery(appCtx, j)
 		if err != nil {
 			appCtx.Log().Errorf("Failed to delivery backup by job %s. Errors: %v", j.name, err)
-			errs = append(errs, err)
+			errs = multierror.Append(errs, err)
 		}
 	}
 
-	return
+	return errs.ErrorOrNil()
 }
 
 func (j *job) Close() error {

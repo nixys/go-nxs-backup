@@ -3,7 +3,6 @@ package ftp
 import (
 	"bytes"
 	"fmt"
-	"github.com/hashicorp/go-multierror"
 	"io"
 	"io/fs"
 	"io/ioutil"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/jlaffaye/ftp"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 

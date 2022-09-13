@@ -1,23 +1,31 @@
 package webdav
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"io/ioutil"
 	"os"
 	"path"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
+	"nxs-backup/misc"
 	"nxs-backup/modules/backend/webdav"
 	. "nxs-backup/modules/storage"
 )
 
 type WebDav struct {
-	Client     *webdav.Client
-	BackupPath string
+	client     *webdav.Client
+	backupPath string
 	Retention
 }
 
@@ -43,118 +51,204 @@ func Init(params Params) (*WebDav, error) {
 	}
 
 	return &WebDav{
-		Client: client,
+		client: client,
 	}, nil
 }
 
 func (wd *WebDav) IsLocal() int { return 0 }
 
 func (wd *WebDav) SetBackupPath(path string) {
-	wd.BackupPath = path
+	wd.backupPath = path
 }
 
 func (wd *WebDav) SetRetention(r Retention) {
 	wd.Retention = r
 }
 
-func (wd *WebDav) DeliveryBackup(appCtx *appctx.AppContext, tmpBackup, ofs, bakType string) error {
-	srcFile, err := os.Open(tmpBackup)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
-		return err
-	}
-	defer srcFile.Close()
+func (wd *WebDav) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) (err error) {
 
-	dstPath, links, err := GetDescBackupDstAndLinks(path.Base(tmpBackup), ofs, wd.BackupPath, wd.Retention)
+	var (
+		bakDstPath, mtdDstPath string
+		links                  map[string]string
+	)
+
+	if bakType == misc.IncBackupType {
+		bakDstPath, mtdDstPath, links, err = GetIncBackupDstAndLinks(tmpBackupFile, ofs, wd.backupPath)
+	} else {
+		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, wd.backupPath, wd.Retention)
+	}
 	if err != nil {
 		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
-		return err
+		return
 	}
 
-	// Make remote directories
-	remDir := path.Dir(dstPath)
-	err = wd.mkDir(remDir)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
-		return err
+	if mtdDstPath != "" {
+		if err = wd.copy(appCtx, tmpBackupFile+".inc", bakDstPath); err != nil {
+			appCtx.Log().Errorf("Unable to upload tmp backup")
+			return
+		}
 	}
 
-	err = wd.Client.Upload(dstPath, srcFile)
-	if err != nil {
-		appCtx.Log().Errorf("Unable to upload file: %s", err)
-		return err
+	if err = wd.copy(appCtx, tmpBackupFile, bakDstPath); err != nil {
+		appCtx.Log().Errorf("Unable to upload tmp backup")
+		return
 	}
-	appCtx.Log().Infof("%s crated", dstPath)
 
 	for dst, src := range links {
-		remDir = path.Dir(dst)
+		remDir := path.Dir(dst)
 		err = wd.mkDir(path.Dir(dst))
 		if err != nil {
 			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
-			return err
+			return
 		}
-		err = wd.Client.Copy(src, dst)
+		err = wd.client.Copy(src, dst)
 		if err != nil {
 			appCtx.Log().Errorf("Unable to make copy: %s", err)
-			return err
+			return
 		}
 	}
 
-	return nil
+	return
 }
 
-func (wd *WebDav) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
+func (wd *WebDav) copy(appCtx *appctx.AppContext, srcPath, dstPath string) (err error) {
 
-	var errs []error
+	// Make remote directories
+	remDir := path.Dir(dstPath)
+	if err = wd.mkDir(remDir); err != nil {
+		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
+		return
+	}
+
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to open '%s'", err)
+		return
+	}
+	defer func() { _ = srcFile.Close() }()
+
+	err = wd.client.Upload(dstPath, srcFile)
+	if err != nil {
+		appCtx.Log().Errorf("Unable to upload file: %s", err)
+	} else {
+		appCtx.Log().Infof("File %s successfull uploaded", dstPath)
+	}
+
+	return err
+}
+
+func (wd *WebDav) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) (err error) {
+
+	var errs *multierror.Error
+
+	for _, ofsPart := range ofsPartsList {
+		if bakType == misc.IncBackupType {
+			err = wd.deleteIncBackup(appCtx, ofsPart, full)
+		} else {
+			err = wd.deleteDescBackup(appCtx, ofsPart)
+		}
+		if err != nil {
+			errs = multierror.Append(errs, err)
+		}
+	}
+
+	return errs.ErrorOrNil()
+}
+
+func (wd *WebDav) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error {
+
+	var errs *multierror.Error
 	curDate := time.Now()
-	// TODO delete old inc backups
 
 	for _, period := range []string{"daily", "weekly", "monthly"} {
-		for _, ofsPart := range ofsPartsList {
-			bakDir := path.Join(wd.BackupPath, ofsPart, period)
-			files, err := wd.Client.Ls(bakDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
-				appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
-				return err
+		bakDir := path.Join(wd.backupPath, ofsPart, period)
+		files, err := wd.client.Ls(bakDir)
+		if err != nil {
+			if errors.Is(fs.ErrNotExist, err) {
+				continue
+			}
+			appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			return err
+		}
+
+		for _, file := range files {
+			fileDate := file.ModTime()
+			var retentionDate time.Time
+
+			switch period {
+			case "daily":
+				retentionDate = fileDate.AddDate(0, 0, wd.Retention.Days)
+			case "weekly":
+				retentionDate = fileDate.AddDate(0, 0, wd.Retention.Weeks*7)
+			case "monthly":
+				retentionDate = fileDate.AddDate(0, wd.Retention.Months, 0)
 			}
 
-			for _, file := range files {
-
-				fileDate := file.ModTime()
-				var retentionDate time.Time
-
-				switch period {
-				case "daily":
-					retentionDate = fileDate.AddDate(0, 0, wd.Retention.Days)
-				case "weekly":
-					retentionDate = fileDate.AddDate(0, 0, wd.Retention.Weeks*7)
-				case "monthly":
-					retentionDate = fileDate.AddDate(0, wd.Retention.Months, 0)
+			retentionDate = retentionDate.Truncate(24 * time.Hour)
+			if curDate.After(retentionDate) {
+				err = wd.client.Rm(path.Join(bakDir, file.Name()))
+				if err != nil {
+					appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+						file.Name(), bakDir, err)
+					errs = multierror.Append(errs, err)
+				} else {
+					appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
+			}
+		}
+	}
 
-				retentionDate = retentionDate.Truncate(24 * time.Hour)
-				if curDate.After(retentionDate) {
-					err = wd.Client.Rm(path.Join(bakDir, file.Name()))
-					if err != nil {
-						appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
-							file.Name(), bakDir, err)
-						errs = append(errs, err)
-					} else {
-						appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+	return errs.ErrorOrNil()
+}
+
+func (wd *WebDav) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bool) error {
+	var errs *multierror.Error
+
+	if full {
+		backupDir := path.Join(wd.backupPath, ofsPart)
+
+		err := wd.client.Rm(backupDir)
+		if err != nil {
+			appCtx.Log().Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			errs = multierror.Append(errs, err)
+		}
+	} else {
+		intMoy, _ := strconv.Atoi(misc.GetDateTimeNow("moy"))
+		lastMonth := intMoy - wd.Months
+
+		var year string
+		if lastMonth > 0 {
+			year = misc.GetDateTimeNow("year")
+		} else {
+			year = misc.GetDateTimeNow("previous_year")
+			lastMonth += 12
+		}
+
+		backupDir := path.Join(wd.backupPath, ofsPart, year)
+
+		dirs, err := wd.client.Ls(backupDir)
+		if err != nil {
+			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			return err
+		}
+		rx := regexp.MustCompile("month_\\d\\d")
+		for _, dir := range dirs {
+			dirName := dir.Name()
+			if rx.MatchString(dirName) {
+				dirParts := strings.Split(dirName, "_")
+				dirMonth, _ := strconv.Atoi(dirParts[1])
+				if dirMonth < lastMonth {
+					if err = wd.client.Rm(path.Join(backupDir, dirName)); err != nil {
+						appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+							dirName, backupDir, err)
+						errs = multierror.Append(errs, err)
 					}
 				}
 			}
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("some errors on file deletion")
-	}
-
-	return nil
+	return errs.ErrorOrNil()
 }
 
 func (wd *WebDav) mkDir(dstPath string) error {
@@ -169,7 +263,7 @@ func (wd *WebDav) mkDir(dstPath string) error {
 			return nil
 		}
 		return errors.New(fmt.Sprintf("%s is a file not a directory", dstPath))
-	} else if err != ErrorFileNotFound {
+	} else if !errors.Is(fs.ErrNotExist, err) {
 		return fmt.Errorf("mkdir %q failed: %w", dstPath, err)
 	}
 
@@ -178,7 +272,7 @@ func (wd *WebDav) mkDir(dstPath string) error {
 	if err != nil {
 		return err
 	}
-	err = wd.Client.Mkdir(dstPath)
+	err = wd.client.Mkdir(dstPath)
 	if err != nil {
 		return err
 	}
@@ -191,11 +285,8 @@ func (wd *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
 	dir := path.Dir(dstPath)
 	base := path.Base(dstPath)
 
-	files, err := wd.Client.Ls(dir)
+	files, err := wd.client.Ls(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrorFileNotFound
-		}
 		return nil, err
 	}
 
@@ -204,12 +295,23 @@ func (wd *WebDav) getInfo(dstPath string) (os.FileInfo, error) {
 			return file, nil
 		}
 	}
-	return nil, ErrorFileNotFound
+	return nil, fs.ErrNotExist
 }
 
 func (wd *WebDav) GetFileReader(ofsPath string) (io.Reader, error) {
-	//TODO implement me
-	panic("implement me")
+	f, err := wd.client.Read(ofsPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	var buf []byte
+	buf, err = ioutil.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes.NewReader(buf), err
 }
 
 func (wd *WebDav) Close() error {

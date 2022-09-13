@@ -2,43 +2,47 @@ package ctx
 
 import (
 	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/hashicorp/go-multierror"
+
+	"nxs-backup/interfaces"
+	"nxs-backup/misc"
+	"nxs-backup/modules/backup/desc_files"
 	"nxs-backup/modules/backup/inc_files"
 	"nxs-backup/modules/backup/mongodump"
+	"nxs-backup/modules/backup/mysql"
+	"nxs-backup/modules/backup/mysql_xtrabackup"
+	"nxs-backup/modules/backup/psql"
+	"nxs-backup/modules/backup/psql_basebackup"
 	"nxs-backup/modules/backup/redis"
 	"nxs-backup/modules/connectors/mongo_connect"
 	"nxs-backup/modules/connectors/mysql_connect"
 	"nxs-backup/modules/connectors/psql_connect"
 	"nxs-backup/modules/connectors/redis_connect"
-	"sort"
-	"strings"
-
-	"nxs-backup/interfaces"
-	"nxs-backup/misc"
-	"nxs-backup/modules/backup/desc_files"
-	"nxs-backup/modules/backup/mysql"
-	"nxs-backup/modules/backup/mysql_xtrabackup"
-	"nxs-backup/modules/backup/psql"
-	"nxs-backup/modules/backup/psql_basebackup"
 	"nxs-backup/modules/storage"
 )
 
-func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []interfaces.Job, errs []error) {
+func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]interfaces.Job, error) {
+	var errs *multierror.Error
+	var jobs []interfaces.Job
 
 	for _, j := range cfgJobs {
 
 		// jobs validation
 		if len(j.JobName) == 0 {
-			errs = append(errs, fmt.Errorf("empty job name is unacceptable"))
+			errs = multierror.Append(errs, fmt.Errorf("empty job name is unacceptable"))
 			continue
 		}
 		if !misc.Contains(misc.AllowedJobTypes, j.JobType) {
-			errs = append(errs, fmt.Errorf("unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(misc.AllowedJobTypes, ", ")))
+			errs = multierror.Append(errs, fmt.Errorf("unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(misc.AllowedJobTypes, ", ")))
 			continue
 		}
 
 		jobStorages, needToMakeBackup, stErrs := initJobStorages(storages, j.StoragesOptions)
 		if len(stErrs) > 0 {
-			errs = append(errs, stErrs...)
+			errs = multierror.Append(errs, stErrs...)
 			continue
 		}
 
@@ -65,7 +69,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 
@@ -93,7 +97,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 
@@ -136,7 +140,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 			jobs = append(jobs, job)
@@ -179,7 +183,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 			jobs = append(jobs, job)
@@ -221,7 +225,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 			jobs = append(jobs, job)
@@ -261,7 +265,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 			jobs = append(jobs, job)
@@ -304,7 +308,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 			jobs = append(jobs, job)
@@ -335,7 +339,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 				Sources:              sources,
 			})
 			if err != nil {
-				errs = append(errs, err)
+				errs = multierror.Append(errs, err)
 				continue
 			}
 			jobs = append(jobs, job)
@@ -346,7 +350,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) (jobs []
 		}
 	}
 
-	return
+	return jobs, errs.ErrorOrNil()
 }
 
 func initJobStorages(storages map[string]interfaces.Storage, opts []storageOpts) (jobStorages interfaces.Storages, needToMakeBackup bool, errs []error) {

@@ -6,7 +6,6 @@ import (
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
-	"nxs-backup/ctx/args"
 	"nxs-backup/interfaces"
 )
 
@@ -31,27 +30,23 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	}
 
 	// Set application context
-	arg := opts.Args.(*args.Params)
+	arg := opts.Args.(*ArgsParams)
 	c.CmdParams = arg.CmdParams
 
-	storages, errs := storagesInit(conf)
-	if len(errs) > 0 {
+	storages, err := storagesInit(conf)
+	if err != nil {
 		fmt.Println("Failed init storages with next errors:")
-		for _, err = range errs {
-			fmt.Printf("  %s\n", err)
-		}
+		fmt.Println(err)
 		os.Exit(1)
 	}
 	for _, s := range storages {
 		c.Storages = append(c.Storages, s)
 	}
 
-	c.Jobs, errs = jobsInit(conf.Jobs, storages)
-	if len(errs) > 0 {
+	c.Jobs, err = jobsInit(conf.Jobs, storages)
+	if err != nil {
 		fmt.Println("Failed init jobs with next errors:")
-		for _, err = range errs {
-			fmt.Printf("  %s\n", err)
-		}
+		fmt.Println(err)
 		os.Exit(1)
 	}
 	for _, job := range c.Jobs {

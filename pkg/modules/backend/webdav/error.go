@@ -1,6 +1,6 @@
-package misc
+package webdav
 
-func HTTPFriendlyStatus(n int) string {
+func httpFriendlyStatus(n int) string {
 	switch n {
 	case 400:
 		return "Bad Request"

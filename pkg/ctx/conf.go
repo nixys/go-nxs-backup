@@ -6,9 +6,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	conf "github.com/nixys/nxs-go-conf"
 
 	"nxs-backup/misc"
@@ -248,7 +248,7 @@ func (c *confOpts) extraCfgsRead() error {
 // validate checks if provided configuration valid
 func (c *confOpts) validate() error {
 
-	var errs []string
+	var errs *multierror.Error
 
 	// emails validation
 	mailList := c.Mail.ClientMail
@@ -257,13 +257,9 @@ func (c *confOpts) validate() error {
 	for _, m := range mailList {
 		_, err := mail.ParseAddress(m)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("  failed to parse email \"%s\". %s", m, err))
+			errs = multierror.Append(errs, fmt.Errorf("  failed to parse email \"%s\". %s", m, err))
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("Detected next errors:\n%s", strings.Join(errs, "\n"))
-	}
-
-	return nil
+	return errs.ErrorOrNil()
 }

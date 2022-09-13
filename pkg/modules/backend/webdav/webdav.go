@@ -13,8 +13,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"nxs-backup/misc"
 )
 
 type Client struct {
@@ -102,10 +100,10 @@ func (w *Client) GetQuotaAvailableBytes() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode >= 400 {
-		return 0, fmt.Errorf("%s(%d): can't get strage quota", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode)
+		return 0, fmt.Errorf("%s(%d): can't get strage quota", httpFriendlyStatus(res.StatusCode), res.StatusCode)
 	}
 
 	var r quotaResp
@@ -138,17 +136,17 @@ func (w *Client) Ls(path string) ([]os.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode >= 400 {
 		if res.StatusCode == 404 {
 			return nil, err
 		}
-		return nil, fmt.Errorf("%s(%d): can't get things in %s", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
+		return nil, fmt.Errorf("%s(%d): can't get things in %s", httpFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
 	}
 
 	var r listResp
 	decoder := xml.NewDecoder(res.Body)
-	decoder.Decode(&r)
+	_ = decoder.Decode(&r)
 	if len(r.Responses) == 0 {
 		return nil, fmt.Errorf("server not found(404)")
 	}
@@ -197,7 +195,7 @@ func (w *Client) Mkdir(path string) error {
 	}
 	_ = res.Body.Close()
 	if res.StatusCode >= 400 {
-		return fmt.Errorf("%s(%d): can't create %s", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
+		return fmt.Errorf("%s(%d): can't create %s", httpFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
 	}
 	return nil
 }
@@ -209,7 +207,7 @@ func (w *Client) Upload(path string, file io.Reader) error {
 	}
 	_ = res.Body.Close()
 	if res.StatusCode >= 400 {
-		return fmt.Errorf("%s(%d): can't upload file %s", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
+		return fmt.Errorf("%s(%d): can't upload file %s", httpFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
 	}
 	return nil
 }
@@ -224,9 +222,20 @@ func (w *Client) Copy(src, dst string) error {
 	}
 	_ = res.Body.Close()
 	if res.StatusCode >= 400 {
-		return fmt.Errorf("%s(%d): can't copy %s to %s", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode, src, dst)
+		return fmt.Errorf("%s(%d): can't copy %s to %s", httpFriendlyStatus(res.StatusCode), res.StatusCode, src, dst)
 	}
 	return nil
+}
+
+func (w *Client) Read(path string) (io.ReadCloser, error) {
+	res, err := w.request("GET", path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s(%d): can't read %s", httpFriendlyStatus(res.StatusCode), res.StatusCode, path)
+	}
+	return res.Body, nil
 }
 
 func (w *Client) Rm(path string) error {
@@ -236,7 +245,7 @@ func (w *Client) Rm(path string) error {
 	}
 	_ = res.Body.Close()
 	if res.StatusCode >= 400 {
-		return fmt.Errorf("%s(%d): can't remove %s", misc.HTTPFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
+		return fmt.Errorf("%s(%d): can't remove %s", httpFriendlyStatus(res.StatusCode), res.StatusCode, filepath.Base(path))
 	}
 	return nil
 }
@@ -257,7 +266,7 @@ func (w *Client) request(method, path string, body io.Reader, fn func(req *http.
 	req.Header.Add("Accept-Charset", "utf-8")
 
 	if req.Body != nil {
-		defer req.Body.Close()
+		defer func() { _ = req.Body.Close() }()
 	}
 	if fn != nil {
 		fn(req)

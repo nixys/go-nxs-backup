@@ -3,12 +3,14 @@ package redis
 import (
 	"bytes"
 	"fmt"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"nxs-backup/modules/backend/targz"
-	"nxs-backup/modules/connectors/redis_connect"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/hashicorp/go-multierror"
+	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/connectors/redis_connect"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
@@ -128,7 +130,7 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) []error {
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
 	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
 }
 
@@ -136,31 +138,32 @@ func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
 	return j.storages.CleanupTmpData(appCtx, j)
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
+func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
 
-		if errList := j.createTmpBackup(appCtx, tmpDir, ofsPart, tgt); errList != nil {
+		if err := j.createTmpBackup(appCtx, tmpDir, ofsPart, tgt); err != nil {
 			appCtx.Log().Errorf("Failed to create temp backup by job %s", j.name)
-			errs = append(errs, errList...)
+			errs = multierror.Append(errs, err)
 			continue
 		}
 
 		if j.deferredCopyingLevel <= 0 {
 			err := j.storages.Delivery(appCtx, j)
-			errs = append(errs, err)
+			errs = multierror.Append(errs, err)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
 		err := j.storages.Delivery(appCtx, j)
-		errs = append(errs, err)
+		errs = multierror.Append(errs, err)
 	}
 
-	return
+	return errs.ErrorOrNil()
 }
 
-func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir, tgtName string, tgt target) (errs []error) {
+func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir, tgtName string, tgt target) error {
 
 	var stderr, stdout bytes.Buffer
 
@@ -181,22 +184,19 @@ func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir, tgtName string,
 
 	if err := cmd.Start(); err != nil {
 		appCtx.Log().Errorf("Unable to start redis-cli. Error: %s", err)
-		errs = append(errs, err)
-		return
+		return err
 	}
 	appCtx.Log().Infof("Starting to dump `%s` source", tgtName)
 
 	if err := cmd.Wait(); err != nil {
 		appCtx.Log().Errorf("Unable to make dump `%s`. Error: %s", tgtName, stderr.String())
-		errs = append(errs, err)
-		return
+		return err
 	}
 
 	if tgt.gzip {
 		if err := targz.GZip(tmpBackupRdb, tmpBackupFile); err != nil {
 			appCtx.Log().Errorf("Unable to archivate tmp backup: %s", err)
-			errs = append(errs, err)
-			return
+			return err
 		}
 		_ = os.RemoveAll(tmpBackupRdb)
 	}
@@ -206,7 +206,7 @@ func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir, tgtName string,
 
 	j.dumpedObjects[tgtName] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
-	return
+	return nil
 }
 
 func (j *job) Close() error {

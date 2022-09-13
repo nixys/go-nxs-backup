@@ -13,8 +13,8 @@ type Job interface {
 	IsBackupSafety() bool
 	NeedToMakeBackup() bool
 	NeedToUpdateIncMeta() bool
-	DoBackup(ctx *appctx.AppContext, tmpDir string) []error
-	DeleteOldBackups(ctx *appctx.AppContext, ofsPath string) []error
+	DoBackup(ctx *appctx.AppContext, tmpDir string) error
+	DeleteOldBackups(ctx *appctx.AppContext, ofsPath string) error
 	CleanupTmpData(ctx *appctx.AppContext) error
 	Close() error
 }

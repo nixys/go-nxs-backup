@@ -5,24 +5,6 @@ import (
 	"strings"
 )
 
-// DirNormalize normalizes the directory path
-func DirNormalize(path string) (string, error) {
-
-	var err error
-
-	path, err = PathNormalize(path)
-	if err != nil {
-		return path, err
-	}
-
-	for strings.HasSuffix(path, "/") {
-		path = strings.TrimSuffix(path, "/")
-	}
-	path += "/"
-
-	return path, nil
-}
-
 // PathNormalize normalizes the path
 func PathNormalize(path string) (string, error) {
 

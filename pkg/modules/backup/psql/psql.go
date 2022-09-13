@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 
+	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
@@ -166,7 +167,7 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) []error {
+func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
 	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
 }
 
@@ -174,16 +175,16 @@ func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
 	return j.storages.CleanupTmpData(appCtx, j)
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) {
+func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
 
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "sql", "", tgt.gzip)
 
-		errLst := createTmpBackup(appCtx, tmpBackupFile, tgt)
-		if errLst != nil {
+		if err := createTmpBackup(appCtx, tmpBackupFile, tgt); err != nil {
 			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
-			errs = append(errs, errLst...)
+			errs = multierror.Append(errs, err)
 			continue
 		} else {
 			appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
@@ -192,25 +193,27 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) (errs []error) 
 		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
 		if j.deferredCopyingLevel <= 0 {
-			err := j.storages.Delivery(appCtx, j)
-			errs = append(errs, err)
+			if err := j.storages.Delivery(appCtx, j); err != nil {
+				errs = multierror.Append(errs, err)
+			}
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		err := j.storages.Delivery(appCtx, j)
-		errs = append(errs, err)
+		if err := j.storages.Delivery(appCtx, j); err != nil {
+			errs = multierror.Append(errs, err)
+		}
 	}
 
-	return
+	return errs.ErrorOrNil()
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, target target) (errs []error) {
+func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, target target) error {
 
 	backupWriter, err := targz.GetFileWriter(tmpBackupPath, target.gzip)
 	if err != nil {
 		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
-		return append(errs, err)
+		return err
 	}
 	defer func() { _ = backupWriter.Close }()
 
@@ -235,20 +238,18 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, target tar
 
 	if err = cmd.Start(); err != nil {
 		appCtx.Log().Errorf("Unable to start pd_dump. Error: %s", err)
-		errs = append(errs, err)
-		return
+		return err
 	}
 	appCtx.Log().Infof("Starting a `%s` dump", target.dbName)
 
 	if err = cmd.Wait(); err != nil {
 		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, stderr.String())
-		errs = append(errs, err)
-		return
+		return err
 	}
 
 	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
 
-	return
+	return nil
 }
 
 func (j *job) Close() error {
