@@ -21,6 +21,7 @@ type Storage interface {
 	GetFileReader(path string) (io.Reader, error)
 	Close() error
 	Clone() Storage
+	GetName() string
 }
 
 type Storages []Storage

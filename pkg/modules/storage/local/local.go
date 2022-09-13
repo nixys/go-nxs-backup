@@ -15,6 +15,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"github.com/sirupsen/logrus"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
@@ -23,11 +24,12 @@ import (
 
 type Local struct {
 	backupPath string
+	logFields  logrus.Fields
 	Retention
 }
 
 func Init() *Local {
-	return &Local{}
+	return &Local{logFields: logrus.Fields{"storage": "local"}}
 }
 
 func (l *Local) IsLocal() int { return 1 }
@@ -52,7 +54,7 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, l.backupPath, l.Retention)
 	}
 	if err != nil {
-		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
+		appCtx.Log().WithFields(l.logFields).Errorf("Unable to get destination path and links: '%s'", err)
 		return
 	}
 
@@ -64,7 +66,7 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 
 	err = os.MkdirAll(path.Dir(bakDstPath), os.ModePerm)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+		appCtx.Log().WithFields(l.logFields).Errorf("Unable to create directory: '%s'", err)
 		return err
 	}
 
@@ -82,22 +84,22 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 
 	_, err = io.Copy(bakDst, bakSrc)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		appCtx.Log().WithFields(l.logFields).Errorf("Unable to make copy: %s", err)
 		return
 	}
-	appCtx.Log().Infof("Successfully copied temp backup to %s", bakDstPath)
+	appCtx.Log().WithFields(l.logFields).Infof("Successfully copied temp backup to %s", bakDstPath)
 
 	for dst, src := range links {
 		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
 		if err != nil {
-			appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+			appCtx.Log().WithFields(l.logFields).Errorf("Unable to create directory: '%s'", err)
 			return err
 		}
 		_ = os.Remove(dst)
 		if err = os.Symlink(src, dst); err != nil {
 			return err
 		}
-		appCtx.Log().Infof("Successfully created symlink %s", dst)
+		appCtx.Log().WithFields(l.logFields).Infof("Successfully created symlink %s", dst)
 	}
 
 	return
@@ -108,7 +110,7 @@ func (l *Local) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile,
 
 	err := os.MkdirAll(path.Dir(mtdDstPath), os.ModePerm)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create directory: '%s'", err)
+		appCtx.Log().WithFields(l.logFields).Errorf("Unable to create directory: '%s'", err)
 		return err
 	}
 
@@ -127,10 +129,10 @@ func (l *Local) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile,
 
 	_, err = io.Copy(mtdDst, mtdSrc)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		appCtx.Log().WithFields(l.logFields).Errorf("Unable to make copy: %s", err)
 		return err
 	}
-	appCtx.Log().Infof("Successfully copied metadata to %s", mtdDstPath)
+	appCtx.Log().WithFields(l.logFields).Infof("Successfully copied metadata to %s", mtdDstPath)
 
 	return nil
 }
@@ -161,10 +163,10 @@ func (l *Local) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) erro
 		bakDir := path.Join(l.backupPath, ofsPart, period)
 		files, err := ioutil.ReadDir(bakDir)
 		if err != nil {
-			if errors.Is(fs.ErrNotExist, err) {
+			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			appCtx.Log().WithFields(l.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -185,11 +187,11 @@ func (l *Local) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) erro
 			if curDate.After(retentionDate) {
 				err = os.Remove(path.Join(bakDir, file.Name()))
 				if err != nil {
-					appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					appCtx.Log().WithFields(l.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name(), bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+					appCtx.Log().WithFields(l.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
 			}
 		}
@@ -204,7 +206,7 @@ func (l *Local) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full 
 	if full {
 		backupDir := path.Join(l.backupPath, ofsPart)
 		if err := os.RemoveAll(backupDir); err != nil {
-			appCtx.Log().Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			appCtx.Log().WithFields(l.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -223,8 +225,12 @@ func (l *Local) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full 
 
 		dirs, err := os.ReadDir(backupDir)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
-			return err
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			} else {
+				appCtx.Log().WithFields(l.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+				return err
+			}
 		}
 		rx := regexp.MustCompile("month_\\d\\d")
 		for _, dir := range dirs {
@@ -234,7 +240,7 @@ func (l *Local) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full 
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = os.RemoveAll(path.Join(backupDir, dirName)); err != nil {
-						appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						appCtx.Log().WithFields(l.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dirName, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}
@@ -261,4 +267,8 @@ func (l *Local) Close() error {
 func (l *Local) Clone() interfaces.Storage {
 	cl := *l
 	return &cl
+}
+
+func (l *Local) GetName() string {
+	return "local"
 }

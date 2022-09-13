@@ -16,6 +16,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"github.com/sirupsen/logrus"
 	"github.com/vmware/go-nfs-client/nfs"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
 
@@ -27,6 +28,8 @@ import (
 type NFS struct {
 	target     *nfs.Target
 	backupPath string
+	name       string
+	logFields  logrus.Fields
 	Retention
 }
 
@@ -38,11 +41,10 @@ type Params struct {
 	Port   int
 }
 
-func Init(params Params) (*NFS, error) {
-
+func Init(name string, params Params) (*NFS, error) {
 	mount, err := nfs.DialMount(params.Host)
 	if err != nil {
-		return nil, fmt.Errorf("unable to dial MOUNT service: %s", err)
+		return nil, fmt.Errorf("Failed to init '%s' NFS storage. Dial MOUNT service error: %v ", name, err)
 	}
 
 	hostname, err := os.Hostname()
@@ -54,16 +56,18 @@ func Init(params Params) (*NFS, error) {
 
 	target, err := mount.Mount(params.Target, auth.Auth())
 	if err != nil {
-		return nil, fmt.Errorf("unable to mount volume: %s", err)
+		return nil, fmt.Errorf("Failed to init '%s' NFS storage. Mount volume error: %v ", name, err)
 	}
 
 	_, err = target.FSInfo()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get target status: %s", err)
+		return nil, fmt.Errorf("Failed to init '%s' NFS storage. Get target status error: %v ", name, err)
 	}
 
 	return &NFS{
-		target: target,
+		name:      name,
+		logFields: logrus.Fields{"storage": name},
+		target:    target,
 	}, nil
 }
 
@@ -106,7 +110,7 @@ func (n *NFS) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakT
 func (n *NFS) copy(appCtx *appctx.AppContext, dst, src string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to open file: '%s'", err)
+		appCtx.Log().WithFields(n.logFields).Errorf("Unable to open file: '%s'", err)
 		return err
 	}
 	defer func() { _ = srcFile.Close() }()
@@ -115,23 +119,23 @@ func (n *NFS) copy(appCtx *appctx.AppContext, dst, src string) error {
 	dstDir := path.Dir(dst)
 	err = n.mkDir(dstDir)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
+		appCtx.Log().WithFields(n.logFields).Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
 		return err
 	}
 
 	destination, err := n.target.OpenFile(dst, 0666)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create destination file '%s': '%s'", dstDir, err)
+		appCtx.Log().WithFields(n.logFields).Errorf("Unable to create destination file '%s': '%s'", dstDir, err)
 		return err
 	}
 	defer func() { _ = destination.Close() }()
 
 	_, err = io.Copy(destination, srcFile)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to make copy '%s': '%s'", dstDir, err)
+		appCtx.Log().WithFields(n.logFields).Errorf("Unable to make copy '%s': '%s'", dstDir, err)
 		return err
 	}
-	appCtx.Log().Infof("Successfully copied temp backup to %s", dst)
+	appCtx.Log().WithFields(n.logFields).Infof("Successfully copied temp backup to %s", dst)
 	return nil
 }
 
@@ -164,7 +168,7 @@ func (n *NFS) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if os.IsNotExist(err) {
 				continue
 			}
-			appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			appCtx.Log().WithFields(n.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -186,11 +190,11 @@ func (n *NFS) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if curDate.After(retentionDate) {
 				err = n.target.Remove(path.Join(bakDir, file.Name()))
 				if err != nil {
-					appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					appCtx.Log().WithFields(n.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name(), bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+					appCtx.Log().WithFields(n.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
 			}
 		}
@@ -207,7 +211,7 @@ func (n *NFS) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 
 		err := n.target.RemoveAll(backupDir)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			appCtx.Log().WithFields(n.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -226,7 +230,7 @@ func (n *NFS) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 
 		dirs, err := n.target.ReadDirPlus(backupDir)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			appCtx.Log().WithFields(n.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
 
@@ -238,7 +242,7 @@ func (n *NFS) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = n.target.RemoveAll(path.Join(backupDir, dirName)); err != nil {
-						appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						appCtx.Log().WithFields(n.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dir.Name, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}
@@ -262,7 +266,7 @@ func (n *NFS) mkDir(dstPath string) error {
 			return nil
 		}
 		return errors.New(fmt.Sprintf("%s is a file not a directory", dstPath))
-	} else if !errors.Is(fs.ErrNotExist, err) {
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("mkdir %q failed: %w", dstPath, err)
 	}
 
@@ -321,4 +325,8 @@ func (n *NFS) Close() error {
 func (n *NFS) Clone() interfaces.Storage {
 	cl := *n
 	return &cl
+}
+
+func (n *NFS) GetName() string {
+	return n.name
 }

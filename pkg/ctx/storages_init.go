@@ -27,50 +27,43 @@ func storagesInit(conf confOpts) (map[string]interfaces.Storage, error) {
 	for _, st := range conf.StorageConnects {
 
 		if st.S3Params != nil {
-
-			storagesMap[st.Name], err = s3.Init(s3.Params(*st.S3Params))
+			storagesMap[st.Name], err = s3.Init(st.Name, s3.Params(*st.S3Params))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}
 
 		} else if st.ScpOptions != nil {
-
-			storagesMap[st.Name], err = sftp.Init(sftp.Params(*st.ScpOptions))
+			storagesMap[st.Name], err = sftp.Init(st.Name, sftp.Params(*st.ScpOptions))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}
 
 		} else if st.SftpParams != nil {
-
-			storagesMap[st.Name], err = sftp.Init(sftp.Params(*st.SftpParams))
+			storagesMap[st.Name], err = sftp.Init(st.Name, sftp.Params(*st.SftpParams))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}
 
 		} else if st.FtpParams != nil {
-
-			storagesMap[st.Name], err = ftp.Init(ftp.Params(*st.FtpParams))
+			storagesMap[st.Name], err = ftp.Init(st.Name, ftp.Params(*st.FtpParams))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}
 
 		} else if st.NfsParams != nil {
-
-			storagesMap[st.Name], err = nfs.Init(nfs.Params(*st.NfsParams))
+			storagesMap[st.Name], err = nfs.Init(st.Name, nfs.Params(*st.NfsParams))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}
 
 		} else if st.WebDavParams != nil {
-
-			storagesMap[st.Name], err = webdav.Init(webdav.Params(*st.WebDavParams))
+			storagesMap[st.Name], err = webdav.Init(st.Name, webdav.Params(*st.WebDavParams))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}
 
 		} else if st.SmbParams != nil {
-
-			storagesMap[st.Name], err = smb.Init(smb.Params(*st.SmbParams))
+			storagesMap[st.Name], err = smb.Init(st.Name, smb.Params(*st.SmbParams))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}

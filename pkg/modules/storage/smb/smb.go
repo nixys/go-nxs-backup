@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/hirochachacha/go-smb2"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"github.com/sirupsen/logrus"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
@@ -26,6 +27,8 @@ type SMB struct {
 	session    *smb2.Session
 	share      *smb2.Share
 	backupPath string
+	name       string
+	logFields  logrus.Fields
 	Retention
 }
 
@@ -39,7 +42,10 @@ type Params struct {
 	ConnectionTimeout time.Duration
 }
 
-func Init(params Params) (s *SMB, err error) {
+func Init(sName string, params Params) (s *SMB, err error) {
+	s.name = sName
+	s.logFields = logrus.Fields{"storage": sName}
+
 	conn, err := net.DialTimeout(
 		"tcp",
 		fmt.Sprintf(
@@ -50,7 +56,7 @@ func Init(params Params) (s *SMB, err error) {
 		params.ConnectionTimeout*time.Second,
 	)
 	if err != nil {
-		return s, err
+		return s, fmt.Errorf("Failed to init '%s' SMB storage. Error: %v ", sName, err)
 	}
 
 	s.session, err = (&smb2.Dialer{
@@ -66,7 +72,7 @@ func Init(params Params) (s *SMB, err error) {
 
 	names, err := s.session.ListSharenames()
 	if err != nil {
-		return nil, err
+		return s, fmt.Errorf("Failed to init '%s' SMB storage. Error: %v ", sName, err)
 	}
 	for _, name := range names {
 		if strings.HasSuffix(name, "$") {
@@ -75,12 +81,12 @@ func Init(params Params) (s *SMB, err error) {
 		if params.Share == name {
 			s.share, err = s.session.Mount(name)
 			if err != nil {
-				return s, err
+				return s, fmt.Errorf("Failed to init '%s' SMB storage. Error: %v ", sName, err)
 			}
 		}
 	}
 
-	return s, nil
+	return
 }
 
 func (s *SMB) IsLocal() int { return 0 }
@@ -106,19 +112,19 @@ func (s *SMB) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakT
 		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, s.backupPath, s.Retention)
 	}
 	if err != nil {
-		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to get destination path and links: '%s'", err)
 		return
 	}
 
 	if mtdDstPath != "" {
 		if err = s.copy(appCtx, tmpBackupFile+".inc", bakDstPath); err != nil {
-			appCtx.Log().Errorf("Unable to upload tmp backup")
+			appCtx.Log().WithFields(s.logFields).Errorf("Unable to upload tmp backup")
 			return
 		}
 	}
 
 	if err = s.copy(appCtx, tmpBackupFile, bakDstPath); err != nil {
-		appCtx.Log().Errorf("Unable to upload tmp backup")
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to upload tmp backup")
 		return
 	}
 
@@ -126,12 +132,12 @@ func (s *SMB) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakT
 		remDir := path.Dir(dst)
 		err = s.share.MkdirAll(remDir, os.ModeDir)
 		if err != nil {
-			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
 			return err
 		}
 		err = s.share.Symlink(src, dst)
 		if err != nil {
-			appCtx.Log().Errorf("Unable to make symlink: %s", err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Unable to make symlink: %s", err)
 			return err
 		}
 	}
@@ -143,29 +149,29 @@ func (s *SMB) copy(appCtx *appctx.AppContext, srcPath, dstPath string) (err erro
 	// Make remote directories
 	remDir := path.Dir(dstPath)
 	if err = s.share.MkdirAll(remDir, os.ModeDir); err != nil {
-		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", remDir, err)
 		return
 	}
 
 	dstFile, err := s.share.Create(dstPath)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create remote file: %s", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote file: %s", err)
 		return
 	}
 	defer func() { _ = dstFile.Close() }()
 
 	srcFile, err := os.Open(srcPath)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to open '%s'", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to open '%s'", err)
 		return
 	}
 	defer func() { _ = srcFile.Close() }()
 
 	_, err = io.Copy(dstFile, srcFile)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to make copy: %s", err)
 	} else {
-		appCtx.Log().Infof("File %s successfull uploaded", dstPath)
+		appCtx.Log().WithFields(s.logFields).Infof("File %s successfull uploaded", dstPath)
 	}
 	return
 }
@@ -199,7 +205,7 @@ func (s *SMB) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if os.IsNotExist(err) {
 				continue
 			}
-			appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -221,11 +227,11 @@ func (s *SMB) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if curDate.After(retentionDate) {
 				err = s.share.Remove(path.Join(bakDir, file.Name()))
 				if err != nil {
-					appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name(), bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+					appCtx.Log().WithFields(s.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
 			}
 		}
@@ -242,7 +248,7 @@ func (s *SMB) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 
 		err := s.share.RemoveAll(backupDir)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -261,7 +267,7 @@ func (s *SMB) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 
 		dirs, err := s.share.ReadDir(backupDir)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
 		rx := regexp.MustCompile("month_\\d\\d")
@@ -272,7 +278,7 @@ func (s *SMB) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = s.share.RemoveAll(path.Join(backupDir, dirName)); err != nil {
-						appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dirName, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}
@@ -308,4 +314,8 @@ func (s *SMB) Close() error {
 func (s *SMB) Clone() interfaces.Storage {
 	cl := *s
 	return &cl
+}
+
+func (s *SMB) GetName() string {
+	return s.name
 }

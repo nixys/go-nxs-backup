@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/jlaffaye/ftp"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"github.com/sirupsen/logrus"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
@@ -25,8 +26,10 @@ import (
 type FTP struct {
 	conn       *ftp.ServerConn
 	backupPath string
+	name       string
+	params     Params
+	logFields  logrus.Fields
 	Retention
-	params Params
 }
 
 type Params struct {
@@ -38,13 +41,18 @@ type Params struct {
 	ConnectionTimeout time.Duration
 }
 
-func Init(params Params) (s *FTP, err error) {
+func Init(name string, params Params) (s *FTP, err error) {
 
 	s = &FTP{
-		params: params,
+		name:      name,
+		logFields: logrus.Fields{"storage": name},
+		params:    params,
 	}
 
 	err = s.updateConn()
+	if err != nil {
+		err = fmt.Errorf("Failed to init '%s' FTP storage. Error: %v ", name, err)
+	}
 
 	return
 }
@@ -120,7 +128,7 @@ func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs strin
 func (f *FTP) copy(appCtx *appctx.AppContext, dst, src string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to open file: '%s'", err)
+		appCtx.Log().WithFields(f.logFields).Errorf("Unable to open file: '%s'", err)
 		return err
 	}
 	defer func() { _ = srcFile.Close() }()
@@ -129,16 +137,16 @@ func (f *FTP) copy(appCtx *appctx.AppContext, dst, src string) error {
 	dstDir := path.Dir(dst)
 	err = f.mkDir(dstDir)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
+		appCtx.Log().WithFields(f.logFields).Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
 		return err
 	}
 
 	err = f.conn.Stor(dst, srcFile)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to upload file: %s", err)
+		appCtx.Log().WithFields(f.logFields).Errorf("Unable to upload file: %s", err)
 		return err
 	}
-	appCtx.Log().Infof("Successfully uploaded file '%s'", dst)
+	appCtx.Log().WithFields(f.logFields).Infof("Successfully uploaded file '%s'", dst)
 	return nil
 }
 
@@ -174,7 +182,7 @@ func (f *FTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if os.IsNotExist(err) {
 				continue
 			}
-			appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			appCtx.Log().WithFields(f.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -196,11 +204,11 @@ func (f *FTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if curDate.After(retentionDate) {
 				err = f.conn.Delete(path.Join(bakDir, file.Name))
 				if err != nil {
-					appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					appCtx.Log().WithFields(f.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name, bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name, bakDir)
+					appCtx.Log().WithFields(f.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name, bakDir)
 				}
 			}
 		}
@@ -221,13 +229,13 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 			if rx.MatchString(err.Error()) {
 				return nil
 			} else {
-				appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+				appCtx.Log().WithFields(f.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 				return err
 			}
 		}
 
 		if err = f.conn.RemoveDirRecur(backupDir); err != nil {
-			appCtx.Log().Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			appCtx.Log().WithFields(f.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -246,7 +254,7 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 
 		dirs, err := f.conn.List(backupDir)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			appCtx.Log().WithFields(f.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
 		rx := regexp.MustCompile("month_\\d\\d")
@@ -256,7 +264,7 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = f.conn.RemoveDirRecur(path.Join(backupDir, dir.Name)); err != nil {
-						appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						appCtx.Log().WithFields(f.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dir.Name, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}
@@ -323,4 +331,8 @@ func (f *FTP) Close() error {
 func (f *FTP) Clone() interfaces.Storage {
 	cl := *f
 	return &cl
+}
+
+func (f *FTP) GetName() string {
+	return f.name
 }

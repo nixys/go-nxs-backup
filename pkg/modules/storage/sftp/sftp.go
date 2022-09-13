@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/pkg/sftp"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"nxs-backup/interfaces"
@@ -27,6 +28,8 @@ import (
 type SFTP struct {
 	client     *sftp.Client
 	backupPath string
+	name       string
+	logFields  logrus.Fields
 	Retention
 }
 
@@ -39,7 +42,7 @@ type Params struct {
 	ConnectTimeout time.Duration
 }
 
-func Init(params Params) (*SFTP, error) {
+func Init(name string, params Params) (*SFTP, error) {
 
 	sshConfig := &ssh.ClientConfig{
 		User:            params.User,
@@ -57,28 +60,30 @@ func Init(params Params) (*SFTP, error) {
 	if params.KeyFile != "" {
 		key, err := ioutil.ReadFile(params.KeyFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read private key file: %w", err)
+			return nil, fmt.Errorf("Failed to init '%s' SFTP storage. Error: %v ", name, fmt.Errorf("failed to read private key file: %w", err))
 		}
 		signer, err := ssh.ParsePrivateKey(key)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse private key file: %w", err)
+			return nil, fmt.Errorf("Failed to init '%s' SFTP storage. Error: %v ", name, fmt.Errorf("failed to parse private key file: %w", err))
 		}
 		sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
 	}
 
 	sshConn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", params.Host, params.Port), sshConfig)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't connect SSH: %w", err)
+		return nil, fmt.Errorf("Failed to init '%s' SFTP storage. Error: %v ", name, fmt.Errorf("couldn't connect SSH: %w", err))
 	}
 
 	sftpClient, err := sftp.NewClient(sshConn)
 	if err != nil {
 		_ = sshConn.Close()
-		return nil, fmt.Errorf("couldn't initialise SFTP: %w", err)
+		return nil, fmt.Errorf("Failed to init '%s' SFTP storage. Error: %v ", name, fmt.Errorf("couldn't initialise SFTP: %w", err))
 	}
 
 	return &SFTP{
-		client: sftpClient,
+		name:      name,
+		logFields: logrus.Fields{"storage": name},
+		client:    sftpClient,
 	}, nil
 
 }
@@ -105,7 +110,7 @@ func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bak
 		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, s.backupPath, s.Retention)
 	}
 	if err != nil {
-		appCtx.Log().Errorf("Unable to get destination path and links: '%s'", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to get destination path and links: '%s'", err)
 		return
 	}
 
@@ -118,41 +123,41 @@ func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bak
 	// Make remote directories
 	rmDir := path.Dir(bakDstPath)
 	if err = s.client.MkdirAll(rmDir); err != nil {
-		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
 		return err
 	}
 
 	dstFile, err := s.client.Create(bakDstPath)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create remote file: %s", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote file: %s", err)
 		return err
 	}
 	defer func() { _ = dstFile.Close() }()
 
 	srcFile, err := os.Open(tmpBackupFile)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to open tmp backup: '%s'", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to open tmp backup: '%s'", err)
 		return err
 	}
 	defer func() { _ = srcFile.Close() }()
 
 	_, err = io.Copy(dstFile, srcFile)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to upload file: %s", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to upload file: %s", err)
 		return err
 	}
-	appCtx.Log().Infof("file %s uploaded", dstFile.Name())
+	appCtx.Log().WithFields(s.logFields).Infof("file %s uploaded", dstFile.Name())
 
 	for dst, src := range links {
 		rmDir = path.Dir(dst)
 		err = s.client.MkdirAll(rmDir)
 		if err != nil {
-			appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
 			return
 		}
 		err = s.client.Symlink(src, dst)
 		if err != nil {
-			appCtx.Log().Errorf("Unable to create symlink: %s", err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Unable to create symlink: %s", err)
 			return
 		}
 	}
@@ -166,7 +171,7 @@ func (s *SFTP) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile, 
 	// Make remote directories
 	rmDir := path.Dir(mtdDstPath)
 	if err := s.client.MkdirAll(rmDir); err != nil {
-		appCtx.Log().Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
 		return err
 	}
 
@@ -185,10 +190,10 @@ func (s *SFTP) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile, 
 
 	_, err = io.Copy(mtdDst, mtdSrc)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to make copy: %s", err)
+		appCtx.Log().WithFields(s.logFields).Errorf("Unable to make copy: %s", err)
 		return err
 	}
-	appCtx.Log().Infof("Successfully copied metadata to %s", mtdDstPath)
+	appCtx.Log().WithFields(s.logFields).Infof("Successfully copied metadata to %s", mtdDstPath)
 
 	return nil
 }
@@ -219,10 +224,10 @@ func (s *SFTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error
 		bakDir := path.Join(s.backupPath, ofsPart, period)
 		files, err := s.client.ReadDir(bakDir)
 		if err != nil {
-			if errors.Is(fs.ErrNotExist, err) {
+			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			appCtx.Log().Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -243,11 +248,11 @@ func (s *SFTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error
 			if curDate.After(retentionDate) {
 				err = s.client.Remove(path.Join(bakDir, file.Name()))
 				if err != nil {
-					appCtx.Log().Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name(), bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+					appCtx.Log().WithFields(s.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
 			}
 		}
@@ -262,7 +267,7 @@ func (s *SFTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full b
 	if full {
 		backupDir := path.Join(s.backupPath, ofsPart)
 		if err := s.client.Remove(backupDir); err != nil {
-			appCtx.Log().Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -281,7 +286,7 @@ func (s *SFTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full b
 
 		dirs, err := s.client.ReadDir(backupDir)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			appCtx.Log().WithFields(s.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
 		rx := regexp.MustCompile("month_\\d\\d")
@@ -292,7 +297,7 @@ func (s *SFTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full b
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = s.client.Remove(path.Join(backupDir, dirName)); err != nil {
-						appCtx.Log().Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dirName, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}
@@ -327,4 +332,8 @@ func (s *SFTP) Close() error {
 func (s *SFTP) Clone() interfaces.Storage {
 	cl := *s
 	return &cl
+}
+
+func (s *SFTP) GetName() string {
+	return s.name
 }

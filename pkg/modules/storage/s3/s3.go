@@ -3,6 +3,7 @@ package s3
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"github.com/sirupsen/logrus"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
@@ -26,6 +28,8 @@ type S3 struct {
 	client     *minio.Client
 	bucketName string
 	backupPath string
+	name       string
+	logFields  logrus.Fields
 	Retention
 }
 
@@ -37,17 +41,19 @@ type Params struct {
 	Region          string `conf:"region" conf_extraopts:"required"`
 }
 
-func Init(params Params) (*S3, error) {
+func Init(name string, params Params) (*S3, error) {
 
 	s3Client, err := minio.New(params.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(params.AccessKeyID, params.SecretAccessKey, ""),
 		Secure: true,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to init '%s' S3 storage. Error: %v ", name, err)
 	}
 
 	return &S3{
+		name:       name,
+		logFields:  logrus.Fields{"storage": name},
 		client:     s3Client,
 		bucketName: params.BucketName,
 	}, nil
@@ -66,6 +72,33 @@ func (s *S3) SetRetention(r Retention) {
 func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) error {
 	var bakRemPaths, mtdRemPaths []string
 
+	if bakType == misc.IncBackupType {
+		bakRemPaths, mtdRemPaths = GetIncBackupDstList(tmpBackupFile, ofs, s.backupPath)
+	} else {
+		bakRemPaths = GetDescBackupDstList(tmpBackupFile, ofs, s.backupPath, s.Retention)
+	}
+
+	if len(mtdRemPaths) > 0 {
+		mtdSrc, err := os.Open(tmpBackupFile + ".inc")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = mtdSrc.Close() }()
+
+		mtdSrcStat, err := mtdSrc.Stat()
+		if err != nil {
+			return err
+		}
+
+		for _, bucketPath := range mtdRemPaths {
+			_, err = s.client.PutObject(context.Background(), s.bucketName, bucketPath, mtdSrc, mtdSrcStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+			if err != nil {
+				return err
+			}
+			appCtx.Log().WithFields(s.logFields).Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
+		}
+	}
+
 	source, err := os.Open(tmpBackupFile)
 	if err != nil {
 		return err
@@ -77,41 +110,12 @@ func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakTy
 		return err
 	}
 
-	if bakType == misc.IncBackupType {
-		bakRemPaths, mtdRemPaths = GetIncBackupDstList(tmpBackupFile, ofs, s.backupPath)
-	} else {
-		bakRemPaths = GetDescBackupDstList(tmpBackupFile, ofs, s.backupPath, s.Retention)
-	}
-
-	if len(mtdRemPaths) > 0 {
-		var mtdSrc *os.File
-		mtdSrc, err = os.Open(tmpBackupFile + ".inc")
-		if err != nil {
-			return err
-		}
-		defer func() { _ = mtdSrc.Close() }()
-
-		var mtdSrcStat os.FileInfo
-		mtdSrcStat, err = source.Stat()
-		if err != nil {
-			return err
-		}
-
-		for _, bucketPath := range mtdRemPaths {
-			_, err = s.client.PutObject(context.Background(), s.bucketName, bucketPath, mtdSrc, mtdSrcStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
-			if err != nil {
-				return err
-			}
-			appCtx.Log().Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
-		}
-	}
-
 	for _, bucketPath := range bakRemPaths {
 		_, err = s.client.PutObject(context.Background(), s.bucketName, bucketPath, source, sourceStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
 		if err != nil {
 			return err
 		}
-		appCtx.Log().Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
+		appCtx.Log().WithFields(s.logFields).Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
 	}
 
 	return nil
@@ -134,7 +138,7 @@ func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, 
 
 			for object := range s.client.ListObjects(context.Background(), s.bucketName, minio.ListObjectsOptions{Recursive: true, Prefix: basePath}) {
 				if object.Err != nil {
-					appCtx.Log().Errorf("Failed get objects: '%s'", object.Err)
+					appCtx.Log().WithFields(s.logFields).Errorf("Failed get objects: '%s'", object.Err)
 					errs = multierror.Append(errs, object.Err)
 				}
 
@@ -184,7 +188,7 @@ func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, 
 	}()
 
 	for rErr := range s.client.RemoveObjects(context.Background(), s.bucketName, objCh, minio.RemoveObjectsOptions{GovernanceBypass: true}) {
-		appCtx.Log().Errorf("Error detected during object deletion: '%s'", rErr)
+		appCtx.Log().WithFields(s.logFields).Errorf("Error detected during object deletion: '%s'", rErr)
 		errs = multierror.Append(errs, rErr.Err)
 	}
 
@@ -192,7 +196,7 @@ func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, 
 }
 
 func (s *S3) GetFileReader(ofsPath string) (io.Reader, error) {
-	o, err := s.client.GetObject(context.Background(), s.bucketName, ofsPath, minio.GetObjectOptions{})
+	o, err := s.client.GetObject(context.Background(), s.bucketName, path.Join(s.backupPath, ofsPath), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -214,4 +218,8 @@ func (s *S3) Close() error {
 func (s *S3) Clone() interfaces.Storage {
 	cl := *s
 	return &cl
+}
+
+func (s *S3) GetName() string {
+	return s.name
 }
