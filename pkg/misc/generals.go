@@ -2,9 +2,7 @@ package misc
 
 import (
 	"fmt"
-	"io"
 	"math/rand"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,28 +17,6 @@ const (
 )
 
 var DecadesBackupDays = []string{"1", "11", "21"}
-
-var AllowedJobTypes = []string{
-	"desc_files",
-	"inc_files",
-	"mysql",
-	"mysql_xtrabackup",
-	"postgresql",
-	"postgresql_basebackup",
-	"mongodb",
-	"redis",
-	"external",
-}
-
-var AllowedStorageConnectParams = []string{
-	"s3_params",
-	"scp_params",
-	"sftp_params",
-	"ftp_params",
-	"smb_params",
-	"nfs_params",
-	"webdav_params",
-}
 
 func GetOfsPart(regex, target string) string {
 	var pathParts []string
@@ -95,20 +71,6 @@ func GetDecadeDaySubdir() (decadeDay string) {
 		decadeDay = "day_11"
 	}
 	return
-}
-
-func IsEmpty(filePath string) (bool, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	_, err = f.Readdirnames(1)
-	if err == io.EOF {
-		return true, nil
-	}
-	return false, err // Either not empty or error, suits both cases
 }
 
 func GetFileFullPath(dirPath, baseName, baseExtension, prefix string, gZip bool) (fullPath string) {

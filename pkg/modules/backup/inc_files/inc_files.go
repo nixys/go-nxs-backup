@@ -45,7 +45,6 @@ type metadata map[string]float64
 type JobParams struct {
 	Name                 string
 	TmpDir               string
-	MetadataDir          string
 	SafetyBackup         bool
 	DeferredCopyingLevel int
 	Storages             interfaces.Storages
@@ -60,7 +59,7 @@ type SourceParams struct {
 	SaveAbsPath bool
 }
 
-func Init(jp JobParams) (*job, error) {
+func Init(jp JobParams) (interfaces.Job, error) {
 
 	j := &job{
 		name:                 jp.Name,

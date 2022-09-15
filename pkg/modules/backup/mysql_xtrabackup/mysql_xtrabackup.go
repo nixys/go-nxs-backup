@@ -60,7 +60,7 @@ type SourceParams struct {
 	Prepare       bool
 }
 
-func Init(jp JobParams) (*job, error) {
+func Init(jp JobParams) (interfaces.Job, error) {
 
 	// check if xtrabackup available
 	_, err := exec_cmd.Exec("xtrabackup", "--version")

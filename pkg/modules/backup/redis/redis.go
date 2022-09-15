@@ -9,12 +9,12 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"nxs-backup/modules/backend/targz"
-	"nxs-backup/modules/connectors/redis_connect"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
+	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/connectors/redis_connect"
 )
 
 type job struct {
@@ -49,7 +49,7 @@ type SourceParams struct {
 	Gzip          bool
 }
 
-func Init(jp JobParams) (*job, error) {
+func Init(jp JobParams) (interfaces.Job, error) {
 
 	// check if redis-cli available
 	_, err := exec_cmd.Exec("redis-cli", "--version")

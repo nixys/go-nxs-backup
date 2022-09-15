@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/fs"
 	"io/ioutil"
 	"os"
 	"path"
@@ -307,16 +306,11 @@ func (f *FTP) GetFileReader(ofsPath string) (io.Reader, error) {
 
 	r, err := f.conn.Retr(path.Join(f.backupPath, ofsPath))
 	if err != nil {
-		rx := regexp.MustCompile("550|not found|unavailable")
-		if rx.MatchString(err.Error()) {
-			return nil, fs.ErrNotExist
-		}
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
 
-	var buf []byte
-	buf, err = ioutil.ReadAll(r)
+	buf, err := ioutil.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}

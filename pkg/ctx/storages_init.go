@@ -7,7 +7,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"nxs-backup/interfaces"
-	"nxs-backup/misc"
 	"nxs-backup/modules/storage/ftp"
 	"nxs-backup/modules/storage/local"
 	"nxs-backup/modules/storage/nfs"
@@ -16,6 +15,16 @@ import (
 	"nxs-backup/modules/storage/smb"
 	"nxs-backup/modules/storage/webdav"
 )
+
+var allowedConnectParams = []string{
+	"s3_params",
+	"scp_params",
+	"sftp_params",
+	"ftp_params",
+	"smb_params",
+	"nfs_params",
+	"webdav_params",
+}
 
 func storagesInit(conf confOpts) (map[string]interfaces.Storage, error) {
 	var errs *multierror.Error
@@ -69,7 +78,7 @@ func storagesInit(conf confOpts) (map[string]interfaces.Storage, error) {
 			}
 
 		} else {
-			errs = multierror.Append(errs, fmt.Errorf("unable to define `%s` storage connect type by its params. Allowed connect params: %s", st.Name, strings.Join(misc.AllowedStorageConnectParams, ", ")))
+			errs = multierror.Append(errs, fmt.Errorf("unable to define `%s` storage connect type by its params. Allowed connect params: %s", st.Name, strings.Join(allowedConnectParams, ", ")))
 		}
 	}
 

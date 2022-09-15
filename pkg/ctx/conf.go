@@ -42,8 +42,7 @@ type mailConf struct {
 type cfgJob struct {
 	JobName              string        `conf:"job_name" conf_extraopts:"required"`
 	JobType              string        `conf:"type" conf_extraopts:"required"`
-	TmpDir               string        `conf:"tmp_dir" conf_extraopts:"required"`
-	IncMetadataDir       string        `conf:"inc_metadata_dir"`
+	TmpDir               string        `conf:"tmp_dir"`
 	DumpCmd              string        `conf:"dump_cmd"`
 	SafetyBackup         bool          `conf:"safety_backup" conf_extraopts:"default=false"`
 	DeferredCopyingLevel int           `conf:"deferred_copying_level" conf_extraopts:"default=0"`

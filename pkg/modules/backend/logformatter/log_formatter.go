@@ -3,7 +3,6 @@ package logformatter
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -28,14 +27,14 @@ func (f *BackupLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 	}
 
-	out = fmt.Sprintf("[%s]", entry.Time.Format(time.RFC3339Nano))
+	out = fmt.Sprintf("%s", strings.ToUpper(entry.Level.String()))
 	if job != "" {
 		out += fmt.Sprintf("[%s]", job)
 	}
 	if storage != "" {
-		out += fmt.Sprintf("[%s]", storage)
+		out += fmt.Sprintf("(%s)", storage)
 	}
-	out += fmt.Sprintf(" %s: %s", strings.ToUpper(entry.Level.String()), entry.Message)
+	out += fmt.Sprintf("[%s]: %s", entry.Time.Format("2006-01-02 15:04:05.000+MST"), entry.Message)
 	if len(s) > 0 {
 		out += fmt.Sprintf(" (%s)\n", strings.Join(s, ", "))
 	} else {

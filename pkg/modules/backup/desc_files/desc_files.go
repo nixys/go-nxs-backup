@@ -52,7 +52,7 @@ type SourceParams struct {
 	SaveAbsPath bool
 }
 
-func Init(jp JobParams) (*job, error) {
+func Init(jp JobParams) (interfaces.Job, error) {
 
 	j := &job{
 		name:                 jp.Name,

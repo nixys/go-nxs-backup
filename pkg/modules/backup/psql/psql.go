@@ -56,7 +56,7 @@ type SourceParams struct {
 	IsSlave       bool
 }
 
-func Init(jp JobParams) (*job, error) {
+func Init(jp JobParams) (interfaces.Job, error) {
 
 	// check if mysqldump available
 	_, err := exec_cmd.Exec("pg_dump", "--version")

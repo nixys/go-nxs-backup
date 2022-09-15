@@ -8,8 +8,8 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"nxs-backup/interfaces"
-	"nxs-backup/misc"
 	"nxs-backup/modules/backup/desc_files"
+	"nxs-backup/modules/backup/external"
 	"nxs-backup/modules/backup/inc_files"
 	"nxs-backup/modules/backup/mongodump"
 	"nxs-backup/modules/backup/mysql"
@@ -24,6 +24,18 @@ import (
 	"nxs-backup/modules/storage"
 )
 
+var allowedJobTypes = []string{
+	"desc_files",
+	"inc_files",
+	"mysql",
+	"mysql_xtrabackup",
+	"postgresql",
+	"postgresql_basebackup",
+	"mongodb",
+	"redis",
+	"external",
+}
+
 func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]interfaces.Job, error) {
 	var errs *multierror.Error
 	var jobs []interfaces.Job
@@ -35,11 +47,6 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			errs = multierror.Append(errs, fmt.Errorf("empty job name is unacceptable"))
 			continue
 		}
-		if !misc.Contains(misc.AllowedJobTypes, j.JobType) {
-			errs = multierror.Append(errs, fmt.Errorf("unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(misc.AllowedJobTypes, ", ")))
-			continue
-		}
-
 		jobStorages, needToMakeBackup, stErrs := initJobStorages(storages, j.StoragesOptions)
 		if len(stErrs) > 0 {
 			errs = multierror.Append(errs, stErrs...)
@@ -90,7 +97,6 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			job, err := inc_files.Init(inc_files.JobParams{
 				Name:                 j.JobName,
 				TmpDir:               j.TmpDir,
-				MetadataDir:          j.IncMetadataDir,
 				SafetyBackup:         j.SafetyBackup,
 				DeferredCopyingLevel: j.DeferredCopyingLevel,
 				Storages:             jobStorages,
@@ -344,9 +350,23 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 			jobs = append(jobs, job)
 
-		// "external" as default
-		default:
+		case "external":
+			job, err := external.Init(external.JobParams{
+				Name:             j.JobName,
+				DumpCmd:          j.DumpCmd,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				Storages:         jobStorages,
+			})
+			if err != nil {
+				errs = multierror.Append(errs, err)
+				continue
+			}
+			jobs = append(jobs, job)
 
+		default:
+			errs = multierror.Append(errs, fmt.Errorf("unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(allowedJobTypes, ", ")))
+			continue
 		}
 	}
 

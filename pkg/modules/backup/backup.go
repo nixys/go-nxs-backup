@@ -15,6 +15,7 @@ import (
 
 func Perform(appCtx *appctx.AppContext, job interfaces.Job) error {
 	var errs *multierror.Error
+	var tmpDirPath string
 
 	if job.GetStoragesCount() == 0 {
 		appCtx.Log().Warn("There are no configured storages for job.")
@@ -41,21 +42,22 @@ func Perform(appCtx *appctx.AppContext, job interfaces.Job) error {
 
 	appCtx.Log().Infof("Starting job %s", job.GetName())
 
-	tmpDirPath := path.Join(job.GetTempDir(), fmt.Sprintf("%s_%s", job.GetType(), misc.GetDateTimeNow("")))
-	err := os.MkdirAll(tmpDirPath, os.ModePerm)
-	if err != nil {
-		appCtx.Log().Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", job.GetName(), err)
-		errs = multierror.Append(errs, err)
-		return errs.ErrorOrNil()
+	if jobTmpDir := job.GetTempDir(); jobTmpDir != "" {
+		tmpDirPath = path.Join(jobTmpDir, fmt.Sprintf("%s_%s", job.GetType(), misc.GetDateTimeNow("")))
+		err := os.MkdirAll(tmpDirPath, os.ModePerm)
+		if err != nil {
+			appCtx.Log().Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", job.GetName(), err)
+			errs = multierror.Append(errs, err)
+			return errs.ErrorOrNil()
+		}
 	}
 
-	if err = job.DoBackup(appCtx, tmpDirPath); err != nil {
+	if err := job.DoBackup(appCtx, tmpDirPath); err != nil {
 		errs = multierror.Append(errs, err)
 	}
 
-	err = job.CleanupTmpData(appCtx)
-
-	err = filepath.Walk(tmpDirPath,
+	_ = job.CleanupTmpData(appCtx)
+	_ = filepath.Walk(tmpDirPath,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
