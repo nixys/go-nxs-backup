@@ -16,7 +16,7 @@ import (
 
 type confOpts struct {
 	ServerName      string              `conf:"server_name" conf_extraopts:"required"`
-	Mail            mailConf            `conf:"mail" conf_extraopts:"required"`
+	Notifications   notifications       `conf:"notifications"`
 	Jobs            []cfgJob            `conf:"jobs"`
 	StorageConnects []cfgStorageConnect `conf:"storage_connects"`
 	IncludeCfgs     []string            `conf:"include_jobs_configs"`
@@ -27,7 +27,12 @@ type confOpts struct {
 	ConfPath string
 }
 
+type notifications struct {
+	Mail mailConf `conf:"mail"`
+}
+
 type mailConf struct {
+	Enabled      bool     `conf:"enabled"`
 	SmtpServer   string   `conf:"smtp_server"`
 	SmtpPort     int      `conf:"smtp_port"`
 	SmtpUser     string   `conf:"smtp_user"`
@@ -250,13 +255,15 @@ func (c *confOpts) validate() error {
 	var errs *multierror.Error
 
 	// emails validation
-	mailList := c.Mail.ClientMail
-	mailList = append(mailList, c.Mail.AdminMail)
-	mailList = append(mailList, c.Mail.MailFrom)
-	for _, m := range mailList {
-		_, err := mail.ParseAddress(m)
-		if err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("  failed to parse email \"%s\". %s", m, err))
+	if c.Notifications.Mail.Enabled {
+		mailList := c.Notifications.Mail.ClientMail
+		mailList = append(mailList, c.Notifications.Mail.AdminMail)
+		mailList = append(mailList, c.Notifications.Mail.MailFrom)
+		for _, m := range mailList {
+			_, err := mail.ParseAddress(m)
+			if err != nil {
+				errs = multierror.Append(errs, fmt.Errorf("  failed to parse email \"%s\". %s", m, err))
+			}
 		}
 	}
 

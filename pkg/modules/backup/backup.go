@@ -2,33 +2,33 @@ package backup
 
 import (
 	"fmt"
-	"github.com/hashicorp/go-multierror"
 	"os"
 	"path"
 	"path/filepath"
 
-	appctx "github.com/nixys/nxs-go-appctx/v2"
+	"github.com/hashicorp/go-multierror"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/logger"
 )
 
-func Perform(appCtx *appctx.AppContext, job interfaces.Job) error {
+func Perform(logCh chan logger.LogRecord, job interfaces.Job) error {
 	var errs *multierror.Error
 	var tmpDirPath string
 
 	if job.GetStoragesCount() == 0 {
-		appCtx.Log().Warn("There are no configured storages for job.")
+		logCh <- logger.Log(job.GetName(), "").Warn("There are no configured storages for job.")
 		return nil
 	}
 
 	if !job.IsBackupSafety() {
-		if err := job.DeleteOldBackups(appCtx, ""); err != nil {
+		if err := job.DeleteOldBackups(logCh, ""); err != nil {
 			errs = multierror.Append(errs, err)
 		}
 	} else {
 		defer func() {
-			err := job.DeleteOldBackups(appCtx, "")
+			err := job.DeleteOldBackups(logCh, "")
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}
@@ -36,27 +36,27 @@ func Perform(appCtx *appctx.AppContext, job interfaces.Job) error {
 	}
 
 	if !job.NeedToMakeBackup() {
-		appCtx.Log().Infof("According to the backup plan today new backups are not created for job %s", job.GetName())
+		logCh <- logger.Log(job.GetName(), "").Infof("According to the backup plan today new backups are not created for job %s", job.GetName())
 		return nil
 	}
 
-	appCtx.Log().Infof("Starting job %s", job.GetName())
+	logCh <- logger.Log(job.GetName(), "").Info("Starting")
 
 	if jobTmpDir := job.GetTempDir(); jobTmpDir != "" {
 		tmpDirPath = path.Join(jobTmpDir, fmt.Sprintf("%s_%s", job.GetType(), misc.GetDateTimeNow("")))
 		err := os.MkdirAll(tmpDirPath, os.ModePerm)
 		if err != nil {
-			appCtx.Log().Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", job.GetName(), err)
+			logCh <- logger.Log(job.GetName(), "").Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", job.GetName(), err)
 			errs = multierror.Append(errs, err)
 			return errs.ErrorOrNil()
 		}
 	}
 
-	if err := job.DoBackup(appCtx, tmpDirPath); err != nil {
+	if err := job.DoBackup(logCh, tmpDirPath); err != nil {
 		errs = multierror.Append(errs, err)
 	}
 
-	_ = job.CleanupTmpData(appCtx)
+	_ = job.CleanupTmpData()
 	_ = filepath.Walk(tmpDirPath,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -71,6 +71,8 @@ func Perform(appCtx *appctx.AppContext, job interfaces.Job) error {
 		})
 	// cleanup tmp dir
 	_ = os.Remove(tmpDirPath)
+
+	logCh <- logger.Log(job.GetName(), "").Info("Finished")
 
 	return errs.ErrorOrNil()
 }

@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-
 	"nxs-backup/interfaces"
+	"nxs-backup/modules/logger"
 )
 
 type job struct {
@@ -88,21 +87,21 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
-	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
+func (j *job) DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error {
+	return j.storages.DeleteOldBackups(logCh, j, ofsPath)
 }
 
-func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
-	return j.storages.CleanupTmpData(appCtx, j)
+func (j *job) CleanupTmpData() error {
+	return j.storages.CleanupTmpData(j)
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, _ string) (err error) {
+func (j *job) DoBackup(logCh chan logger.LogRecord, _ string) (err error) {
 
 	var stderr, stdout bytes.Buffer
 
 	defer func() {
 		if err != nil {
-			appCtx.Log().Errorf("Failed to create temp backup by job %s", j.name)
+			logCh <- logger.Log(j.name, "").Error("Failed to create temp backup.")
 		}
 	}()
 
@@ -119,13 +118,13 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, _ string) (err error) {
 	}
 
 	if err = cmd.Start(); err != nil {
-		appCtx.Log().Errorf("Unable to start %s. Error: %s", j.dumpCmd, err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to start %s. Error: %s", j.dumpCmd, err)
 		return err
 	}
-	appCtx.Log().Infof("Starting of `%s`", j.dumpCmd)
+	logCh <- logger.Log(j.name, "").Infof("Starting of `%s`", j.dumpCmd)
 
 	if err = cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to finish `%s`. Error: %s", j.dumpCmd, stderr.String())
+		logCh <- logger.Log(j.name, "").Errorf("Unable to finish `%s`. Error: %s", j.dumpCmd, stderr.String())
 		return err
 	}
 
@@ -134,16 +133,16 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, _ string) (err error) {
 	}
 	err = json.Unmarshal(stdout.Bytes(), &out)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to parse execution result. Error: %s", stderr.String())
+		logCh <- logger.Log(j.name, "").Errorf("Unable to parse execution result. Error: %s", stderr.String())
 		return err
 	}
 
-	appCtx.Log().Infof("Dumping completed")
-	appCtx.Log().Infof("Created temp backup %s by job %s", out.FullPath, j.name)
+	logCh <- logger.Log(j.name, "").Infof("Dumping completed")
+	logCh <- logger.Log(j.name, "").Debugf("Created temp backup %s.", out.FullPath)
 
 	j.dumpedObjects[j.name] = interfaces.DumpObject{TmpFile: out.FullPath}
 
-	return j.storages.Delivery(appCtx, j)
+	return j.storages.Delivery(logCh, j)
 }
 
 func (j *job) Close() error {

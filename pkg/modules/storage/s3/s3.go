@@ -16,11 +16,10 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"github.com/sirupsen/logrus"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/logger"
 	. "nxs-backup/modules/storage"
 )
 
@@ -29,7 +28,6 @@ type S3 struct {
 	bucketName string
 	backupPath string
 	name       string
-	logFields  logrus.Fields
 	Retention
 }
 
@@ -53,7 +51,6 @@ func Init(name string, params Params) (*S3, error) {
 
 	return &S3{
 		name:       name,
-		logFields:  logrus.Fields{"storage": name},
 		client:     s3Client,
 		bucketName: params.BucketName,
 	}, nil
@@ -69,7 +66,7 @@ func (s *S3) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) error {
+func (s *S3) DeliveryBackup(logCh chan logger.LogRecord, jobName, tmpBackupFile, ofs, bakType string) error {
 	var bakRemPaths, mtdRemPaths []string
 
 	if bakType == misc.IncBackupType {
@@ -95,7 +92,7 @@ func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakTy
 			if err != nil {
 				return err
 			}
-			appCtx.Log().WithFields(s.logFields).Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
+			logCh <- logger.Log(jobName, s.name).Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
 		}
 	}
 
@@ -115,13 +112,13 @@ func (s *S3) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakTy
 		if err != nil {
 			return err
 		}
-		appCtx.Log().WithFields(s.logFields).Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
+		logCh <- logger.Log(jobName, s.name).Infof("Successfully uploaded object '%s' in bucket %s", bucketPath, s.bucketName)
 	}
 
 	return nil
 }
 
-func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error {
+func (s *S3) DeleteOldBackups(logCh chan logger.LogRecord, ofsPartsList []string, jobName, bakType string, full bool) error {
 
 	var errs *multierror.Error
 	var objsToDel []minio.ObjectInfo
@@ -138,7 +135,7 @@ func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, 
 
 			for object := range s.client.ListObjects(context.Background(), s.bucketName, minio.ListObjectsOptions{Recursive: true, Prefix: basePath}) {
 				if object.Err != nil {
-					appCtx.Log().WithFields(s.logFields).Errorf("Failed get objects: '%s'", object.Err)
+					logCh <- logger.Log(jobName, s.name).Errorf("Failed get objects: '%s'", object.Err)
 					errs = multierror.Append(errs, object.Err)
 				}
 
@@ -188,7 +185,7 @@ func (s *S3) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, 
 	}()
 
 	for rErr := range s.client.RemoveObjects(context.Background(), s.bucketName, objCh, minio.RemoveObjectsOptions{GovernanceBypass: true}) {
-		appCtx.Log().WithFields(s.logFields).Errorf("Error detected during object deletion: '%s'", rErr)
+		logCh <- logger.Log(jobName, s.name).Errorf("Error detected during object deletion: '%s'", rErr)
 		errs = multierror.Append(errs, rErr.Err)
 	}
 

@@ -6,9 +6,9 @@ import (
 	"path"
 
 	"github.com/hashicorp/go-multierror"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/misc"
+	"nxs-backup/modules/logger"
 	"nxs-backup/modules/storage"
 )
 
@@ -16,8 +16,8 @@ type Storage interface {
 	IsLocal() int
 	SetBackupPath(path string)
 	SetRetention(r storage.Retention)
-	DeliveryBackup(appCtx *appctx.AppContext, tmpBackupPath, ofs, bakType string) error
-	DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) error
+	DeliveryBackup(logCh chan logger.LogRecord, jobName, tmpBackupPath, ofs, bakType string) error
+	DeleteOldBackups(logCh chan logger.LogRecord, ofsPartsList []string, jobName, bakType string, full bool) error
 	GetFileReader(path string) (io.Reader, error)
 	Close() error
 	Clone() Storage
@@ -30,15 +30,15 @@ func (s Storages) Len() int           { return len(s) }
 func (s Storages) Less(i, j int) bool { return s[i].IsLocal() < s[j].IsLocal() }
 func (s Storages) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
-func (s Storages) DeleteOldBackups(appCtx *appctx.AppContext, j Job, ofsPath string) error {
+func (s Storages) DeleteOldBackups(logCh chan logger.LogRecord, j Job, ofsPath string) error {
 	var err error
 	var errs *multierror.Error
 
 	for _, st := range s {
 		if ofsPath != "" {
-			err = st.DeleteOldBackups(appCtx, []string{ofsPath}, j.GetType(), true)
+			err = st.DeleteOldBackups(logCh, []string{ofsPath}, j.GetName(), j.GetType(), true)
 		} else {
-			err = st.DeleteOldBackups(appCtx, j.GetTargetOfsList(), j.GetType(), false)
+			err = st.DeleteOldBackups(logCh, j.GetTargetOfsList(), j.GetName(), j.GetType(), false)
 		}
 		if err != nil {
 			errs = multierror.Append(errs, err)
@@ -47,7 +47,7 @@ func (s Storages) DeleteOldBackups(appCtx *appctx.AppContext, j Job, ofsPath str
 	return errs.ErrorOrNil()
 }
 
-func (s Storages) Delivery(appCtx *appctx.AppContext, job Job) error {
+func (s Storages) Delivery(logCh chan logger.LogRecord, job Job) error {
 
 	var errs *multierror.Error
 
@@ -55,7 +55,7 @@ func (s Storages) Delivery(appCtx *appctx.AppContext, job Job) error {
 		if !dumpObj.Delivered {
 			var errsDelivery []error
 			for _, st := range s {
-				if err := st.DeliveryBackup(appCtx, dumpObj.TmpFile, ofs, job.GetType()); err != nil {
+				if err := st.DeliveryBackup(logCh, job.GetName(), dumpObj.TmpFile, ofs, job.GetType()); err != nil {
 					errsDelivery = append(errsDelivery, err)
 				}
 			}
@@ -70,7 +70,7 @@ func (s Storages) Delivery(appCtx *appctx.AppContext, job Job) error {
 	return errs.ErrorOrNil()
 }
 
-func (s Storages) CleanupTmpData(appCtx *appctx.AppContext, job Job) error {
+func (s Storages) CleanupTmpData(job Job) error {
 	var errs *multierror.Error
 
 	for _, dumpObj := range job.GetDumpObjects() {
@@ -89,7 +89,6 @@ func (s Storages) CleanupTmpData(appCtx *appctx.AppContext, job Job) error {
 		if err := os.Remove(tmpBakFile); err != nil {
 			errs = multierror.Append(errs, err)
 		}
-		appCtx.Log().Infof("deleted temp backup file '%s'", tmpBakFile)
 	}
 	return errs.ErrorOrNil()
 }

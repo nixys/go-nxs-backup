@@ -14,22 +14,19 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"github.com/sirupsen/logrus"
-
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/logger"
 	. "nxs-backup/modules/storage"
 )
 
 type Local struct {
 	backupPath string
-	logFields  logrus.Fields
 	Retention
 }
 
 func Init() *Local {
-	return &Local{logFields: logrus.Fields{"storage": "local"}}
+	return &Local{}
 }
 
 func (l *Local) IsLocal() int { return 1 }
@@ -42,7 +39,7 @@ func (l *Local) SetRetention(r Retention) {
 	l.Retention = r
 }
 
-func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) (err error) {
+func (l *Local) DeliveryBackup(logCh chan logger.LogRecord, jobName, tmpBackupFile, ofs, bakType string) (err error) {
 	var (
 		bakDstPath, mtdDstPath string
 		links                  map[string]string
@@ -54,19 +51,19 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, l.backupPath, l.Retention)
 	}
 	if err != nil {
-		appCtx.Log().WithFields(l.logFields).Errorf("Unable to get destination path and links: '%s'", err)
+		logCh <- logger.Log(jobName, "local").Errorf("Unable to get destination path and links: '%s'", err)
 		return
 	}
 
 	if mtdDstPath != "" {
-		if err = l.deliveryBackupMetadata(appCtx, tmpBackupFile, mtdDstPath); err != nil {
+		if err = l.deliveryBackupMetadata(logCh, jobName, tmpBackupFile, mtdDstPath); err != nil {
 			return
 		}
 	}
 
 	err = os.MkdirAll(path.Dir(bakDstPath), os.ModePerm)
 	if err != nil {
-		appCtx.Log().WithFields(l.logFields).Errorf("Unable to create directory: '%s'", err)
+		logCh <- logger.Log(jobName, "local").Errorf("Unable to create directory: '%s'", err)
 		return err
 	}
 
@@ -84,33 +81,33 @@ func (l *Local) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, ba
 
 	_, err = io.Copy(bakDst, bakSrc)
 	if err != nil {
-		appCtx.Log().WithFields(l.logFields).Errorf("Unable to make copy: %s", err)
+		logCh <- logger.Log(jobName, "local").Errorf("Unable to make copy: %s", err)
 		return
 	}
-	appCtx.Log().WithFields(l.logFields).Infof("Successfully copied temp backup to %s", bakDstPath)
+	logCh <- logger.Log(jobName, "local").Debugf("Successfully copied temp backup to %s", bakDstPath)
 
 	for dst, src := range links {
 		err = os.MkdirAll(path.Dir(dst), os.ModePerm)
 		if err != nil {
-			appCtx.Log().WithFields(l.logFields).Errorf("Unable to create directory: '%s'", err)
+			logCh <- logger.Log(jobName, "local").Errorf("Unable to create directory: '%s'", err)
 			return err
 		}
 		_ = os.Remove(dst)
 		if err = os.Symlink(src, dst); err != nil {
 			return err
 		}
-		appCtx.Log().WithFields(l.logFields).Infof("Successfully created symlink %s", dst)
+		logCh <- logger.Log(jobName, "local").Debugf("Successfully created symlink %s", dst)
 	}
 
 	return
 }
 
-func (l *Local) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile, mtdDstPath string) error {
+func (l *Local) deliveryBackupMetadata(logCh chan logger.LogRecord, jobName, tmpBackupFile, mtdDstPath string) error {
 	mtdSrcPath := tmpBackupFile + ".inc"
 
 	err := os.MkdirAll(path.Dir(mtdDstPath), os.ModePerm)
 	if err != nil {
-		appCtx.Log().WithFields(l.logFields).Errorf("Unable to create directory: '%s'", err)
+		logCh <- logger.Log(jobName, "local").Errorf("Unable to create directory: '%s'", err)
 		return err
 	}
 
@@ -129,23 +126,23 @@ func (l *Local) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile,
 
 	_, err = io.Copy(mtdDst, mtdSrc)
 	if err != nil {
-		appCtx.Log().WithFields(l.logFields).Errorf("Unable to make copy: %s", err)
+		logCh <- logger.Log(jobName, "local").Errorf("Unable to make copy: %s", err)
 		return err
 	}
-	appCtx.Log().WithFields(l.logFields).Infof("Successfully copied metadata to %s", mtdDstPath)
+	logCh <- logger.Log(jobName, "local").Debugf("Successfully copied metadata to %s", mtdDstPath)
 
 	return nil
 }
 
-func (l *Local) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) (err error) {
+func (l *Local) DeleteOldBackups(logCh chan logger.LogRecord, ofsPartsList []string, jobName, bakType string, full bool) (err error) {
 
 	var errs *multierror.Error
 
 	for _, ofsPart := range ofsPartsList {
 		if bakType == misc.IncBackupType {
-			err = l.deleteIncBackup(appCtx, ofsPart, full)
+			err = l.deleteIncBackup(logCh, jobName, ofsPart, full)
 		} else {
-			err = l.deleteDescBackup(appCtx, ofsPart)
+			err = l.deleteDescBackup(logCh, jobName, ofsPart)
 		}
 		if err != nil {
 			errs = multierror.Append(errs, err)
@@ -155,7 +152,7 @@ func (l *Local) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []strin
 	return errs.ErrorOrNil()
 }
 
-func (l *Local) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error {
+func (l *Local) deleteDescBackup(logCh chan logger.LogRecord, jobName, ofsPart string) error {
 	var errs *multierror.Error
 	curDate := time.Now()
 
@@ -166,7 +163,7 @@ func (l *Local) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) erro
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			appCtx.Log().WithFields(l.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			logCh <- logger.Log(jobName, "local").Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -187,11 +184,11 @@ func (l *Local) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) erro
 			if curDate.After(retentionDate) {
 				err = os.Remove(path.Join(bakDir, file.Name()))
 				if err != nil {
-					appCtx.Log().WithFields(l.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					logCh <- logger.Log(jobName, "local").Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name(), bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().WithFields(l.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+					logCh <- logger.Log(jobName, "local").Debugf("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
 			}
 		}
@@ -200,13 +197,13 @@ func (l *Local) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) erro
 	return errs.ErrorOrNil()
 }
 
-func (l *Local) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bool) error {
+func (l *Local) deleteIncBackup(logCh chan logger.LogRecord, jobName, ofsPart string, full bool) error {
 	var errs *multierror.Error
 
 	if full {
 		backupDir := path.Join(l.backupPath, ofsPart)
 		if err := os.RemoveAll(backupDir); err != nil {
-			appCtx.Log().WithFields(l.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			logCh <- logger.Log(jobName, "local").Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -228,7 +225,7 @@ func (l *Local) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full 
 			if errors.Is(err, fs.ErrNotExist) {
 				return nil
 			} else {
-				appCtx.Log().WithFields(l.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+				logCh <- logger.Log(jobName, "local").Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 				return err
 			}
 		}
@@ -240,7 +237,7 @@ func (l *Local) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full 
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = os.RemoveAll(path.Join(backupDir, dirName)); err != nil {
-						appCtx.Log().WithFields(l.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						logCh <- logger.Log(jobName, "local").Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dirName, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}

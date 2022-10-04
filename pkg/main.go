@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"syscall"
@@ -8,8 +9,9 @@ import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/ctx"
-	"nxs-backup/modules/backend/logformatter"
 	"nxs-backup/modules/cmd"
+	"nxs-backup/modules/logger"
+	"nxs-backup/routines/logging"
 )
 
 func main() {
@@ -30,15 +32,20 @@ func main() {
 		TermSignals:      []os.Signal{syscall.SIGTERM, syscall.SIGINT},
 		ReloadSignals:    []os.Signal{syscall.SIGHUP},
 		LogrotateSignals: []os.Signal{syscall.SIGUSR1},
-		LogFormatter:     &logformatter.BackupLogFormatter{},
+		LogFormatter:     &logger.LogFormatter{},
 	})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
+	// Create main context
+	c := context.Background()
+	// Create notifications routine
+	appCtx.RoutineCreate(c, logging.Runtime)
+
 	// exec found command
-	if err := a.CmdHandler(appCtx); err != nil {
+	if err = a.CmdHandler(appCtx); err != nil {
 		fmt.Println("exec error: ", err)
 		os.Exit(1)
 	}

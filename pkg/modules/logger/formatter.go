@@ -1,4 +1,4 @@
-package logformatter
+package logger
 
 import (
 	"fmt"
@@ -7,9 +7,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type BackupLogFormatter struct{}
+type LogFormatter struct{}
 
-func (f *BackupLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+func (f *LogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 
 	var (
 		out, job, storage string
@@ -27,7 +27,7 @@ func (f *BackupLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 	}
 
-	out = fmt.Sprintf("%s", strings.ToUpper(entry.Level.String()))
+	out = fmt.Sprintf("%s ", strings.ToUpper(entry.Level.String()))
 	if job != "" {
 		out += fmt.Sprintf("[%s]", job)
 	}

@@ -26,7 +26,7 @@ type StartCmd struct {
 type args struct {
 	Start    *StartCmd `arg:"subcommand:start"`
 	ConfPath string    `arg:"-c,--config" help:"Path to config file" default:"/etc/nxs-backup/nxs-backup.conf" placeholder:"PATH"`
-	TestConf bool      `arg:"-t" help:"Check if configuration syntax correct"`
+	TestConf bool      `arg:"-t,--test-config" help:"Check if configuration syntax correct"`
 }
 
 // ReadArgs reads arguments from command line

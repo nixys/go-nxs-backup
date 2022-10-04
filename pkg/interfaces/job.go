@@ -1,6 +1,8 @@
 package interfaces
 
-import appctx "github.com/nixys/nxs-go-appctx/v2"
+import (
+	"nxs-backup/modules/logger"
+)
 
 type Job interface {
 	GetName() string
@@ -13,9 +15,9 @@ type Job interface {
 	IsBackupSafety() bool
 	NeedToMakeBackup() bool
 	NeedToUpdateIncMeta() bool
-	DoBackup(ctx *appctx.AppContext, tmpDir string) error
-	DeleteOldBackups(ctx *appctx.AppContext, ofsPath string) error
-	CleanupTmpData(ctx *appctx.AppContext) error
+	DoBackup(logCh chan logger.LogRecord, tmpDir string) error
+	DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error
+	CleanupTmpData() error
 	Close() error
 }
 

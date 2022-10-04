@@ -14,11 +14,10 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/jlaffaye/ftp"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"github.com/sirupsen/logrus"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/logger"
 	. "nxs-backup/modules/storage"
 )
 
@@ -27,7 +26,6 @@ type FTP struct {
 	backupPath string
 	name       string
 	params     Params
-	logFields  logrus.Fields
 	Retention
 }
 
@@ -43,9 +41,8 @@ type Params struct {
 func Init(name string, params Params) (s *FTP, err error) {
 
 	s = &FTP{
-		name:      name,
-		logFields: logrus.Fields{"storage": name},
-		params:    params,
+		name:   name,
+		params: params,
 	}
 
 	err = s.updateConn()
@@ -94,7 +91,7 @@ func (f *FTP) SetRetention(r Retention) {
 	f.Retention = r
 }
 
-func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs string, bakType string) error {
+func (f *FTP) DeliveryBackup(logCh chan logger.LogRecord, jobName, tmpBackupFile, ofs string, bakType string) error {
 	var bakRemPaths, mtdRemPaths []string
 
 	if err := f.updateConn(); err != nil {
@@ -109,14 +106,14 @@ func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs strin
 
 	if len(mtdRemPaths) > 0 {
 		for _, dstPath := range mtdRemPaths {
-			if err := f.copy(appCtx, dstPath, tmpBackupFile+".inc"); err != nil {
+			if err := f.copy(logCh, jobName, dstPath, tmpBackupFile+".inc"); err != nil {
 				return err
 			}
 		}
 	}
 
 	for _, dstPath := range bakRemPaths {
-		if err := f.copy(appCtx, dstPath, tmpBackupFile); err != nil {
+		if err := f.copy(logCh, jobName, dstPath, tmpBackupFile); err != nil {
 			return err
 		}
 	}
@@ -124,10 +121,10 @@ func (f *FTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs strin
 	return nil
 }
 
-func (f *FTP) copy(appCtx *appctx.AppContext, dst, src string) error {
+func (f *FTP) copy(logCh chan logger.LogRecord, job, dst, src string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
-		appCtx.Log().WithFields(f.logFields).Errorf("Unable to open file: '%s'", err)
+		logCh <- logger.Log(job, f.name).Errorf("Unable to open file: '%s'", err)
 		return err
 	}
 	defer func() { _ = srcFile.Close() }()
@@ -136,20 +133,21 @@ func (f *FTP) copy(appCtx *appctx.AppContext, dst, src string) error {
 	dstDir := path.Dir(dst)
 	err = f.mkDir(dstDir)
 	if err != nil {
-		appCtx.Log().WithFields(f.logFields).Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
+		logCh <- logger.Log(job, f.name).Errorf("Unable to create remote directory '%s': '%s'", dstDir, err)
 		return err
 	}
 
 	err = f.conn.Stor(dst, srcFile)
 	if err != nil {
-		appCtx.Log().WithFields(f.logFields).Errorf("Unable to upload file: %s", err)
+		logCh <- logger.Log(job, f.name).Errorf("Unable to upload file: %s", err)
 		return err
 	}
-	appCtx.Log().WithFields(f.logFields).Infof("Successfully uploaded file '%s'", dst)
+
+	logCh <- logger.Log(job, f.name).Debugf("Successfully uploaded file '%s'", dst)
 	return nil
 }
 
-func (f *FTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) (err error) {
+func (f *FTP) DeleteOldBackups(logCh chan logger.LogRecord, ofsPartsList []string, jobName, bakType string, full bool) (err error) {
 	var errs *multierror.Error
 
 	if err = f.updateConn(); err != nil {
@@ -158,9 +156,9 @@ func (f *FTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string,
 
 	for _, ofsPart := range ofsPartsList {
 		if bakType == misc.IncBackupType {
-			err = f.deleteIncBackup(appCtx, ofsPart, full)
+			err = f.deleteIncBackup(logCh, jobName, ofsPart, full)
 		} else {
-			err = f.deleteDescBackup(appCtx, ofsPart)
+			err = f.deleteDescBackup(logCh, jobName, ofsPart)
 		}
 		if err != nil {
 			errs = multierror.Append(errs, err)
@@ -170,7 +168,7 @@ func (f *FTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string,
 	return errs.ErrorOrNil()
 }
 
-func (f *FTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error {
+func (f *FTP) deleteDescBackup(logCh chan logger.LogRecord, job, ofsPart string) error {
 	var errs *multierror.Error
 	curDate := time.Now()
 
@@ -181,7 +179,7 @@ func (f *FTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if os.IsNotExist(err) {
 				continue
 			}
-			appCtx.Log().WithFields(f.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			logCh <- logger.Log(job, f.name).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -203,11 +201,11 @@ func (f *FTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 			if curDate.After(retentionDate) {
 				err = f.conn.Delete(path.Join(bakDir, file.Name))
 				if err != nil {
-					appCtx.Log().WithFields(f.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					logCh <- logger.Log(job, f.name).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name, bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().WithFields(f.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name, bakDir)
+					logCh <- logger.Log(job, f.name).Debugf("Deleted old backup file '%s' in remote directory '%s'", file.Name, bakDir)
 				}
 			}
 		}
@@ -216,7 +214,7 @@ func (f *FTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error 
 	return errs.ErrorOrNil()
 }
 
-func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bool) error {
+func (f *FTP) deleteIncBackup(logCh chan logger.LogRecord, job, ofsPart string, full bool) error {
 	var errs *multierror.Error
 
 	if full {
@@ -228,13 +226,13 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 			if rx.MatchString(err.Error()) {
 				return nil
 			} else {
-				appCtx.Log().WithFields(f.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+				logCh <- logger.Log(job, f.name).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 				return err
 			}
 		}
 
 		if err = f.conn.RemoveDirRecur(backupDir); err != nil {
-			appCtx.Log().WithFields(f.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			logCh <- logger.Log(job, f.name).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -253,7 +251,7 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 
 		dirs, err := f.conn.List(backupDir)
 		if err != nil {
-			appCtx.Log().WithFields(f.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			logCh <- logger.Log(job, f.name).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
 		rx := regexp.MustCompile("month_\\d\\d")
@@ -263,7 +261,7 @@ func (f *FTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bo
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = f.conn.RemoveDirRecur(path.Join(backupDir, dir.Name)); err != nil {
-						appCtx.Log().WithFields(f.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						logCh <- logger.Log(job, f.name).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dir.Name, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}

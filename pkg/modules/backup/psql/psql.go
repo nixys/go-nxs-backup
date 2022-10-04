@@ -8,13 +8,13 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-multierror"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/psql_connect"
+	"nxs-backup/modules/logger"
 )
 
 type job struct {
@@ -167,40 +167,40 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
-	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
+func (j *job) DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error {
+	return j.storages.DeleteOldBackups(logCh, j, ofsPath)
 }
 
-func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
-	return j.storages.CleanupTmpData(appCtx, j)
+func (j *job) CleanupTmpData() error {
+	return j.storages.CleanupTmpData(j)
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
 
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "sql", "", tgt.gzip)
 
-		if err := createTmpBackup(appCtx, tmpBackupFile, tgt); err != nil {
-			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
+		if err := j.createTmpBackup(logCh, tmpBackupFile, tgt); err != nil {
+			logCh <- logger.Log(j.name, "").Errorf("Failed to create temp backups %s", tmpBackupFile)
 			errs = multierror.Append(errs, err)
 			continue
 		} else {
-			appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
+			logCh <- logger.Log(j.name, "").Debugf("Created temp backups %s", tmpBackupFile)
 		}
 
 		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
 		if j.deferredCopyingLevel <= 0 {
-			if err := j.storages.Delivery(appCtx, j); err != nil {
+			if err := j.storages.Delivery(logCh, j); err != nil {
 				errs = multierror.Append(errs, err)
 			}
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		if err := j.storages.Delivery(appCtx, j); err != nil {
+		if err := j.storages.Delivery(logCh, j); err != nil {
 			errs = multierror.Append(errs, err)
 		}
 	}
@@ -208,11 +208,11 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
 	return errs.ErrorOrNil()
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, target target) error {
+func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpBackupPath string, target target) error {
 
 	backupWriter, err := targz.GetFileWriter(tmpBackupPath, target.gzip)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to create tmp file. Error: %s", err)
 		return err
 	}
 	defer func() { _ = backupWriter.Close }()
@@ -237,17 +237,17 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupPath string, target tar
 	cmd.Stderr = &stderr
 
 	if err = cmd.Start(); err != nil {
-		appCtx.Log().Errorf("Unable to start pd_dump. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to start pd_dump. Error: %s", err)
 		return err
 	}
-	appCtx.Log().Infof("Starting a `%s` dump", target.dbName)
+	logCh <- logger.Log(j.name, "").Infof("Starting a `%s` dump", target.dbName)
 
 	if err = cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, stderr.String())
+		logCh <- logger.Log(j.name, "").Errorf("Unable to dump `%s`. Error: %s", target.dbName, stderr.String())
 		return err
 	}
 
-	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
+	logCh <- logger.Log(j.name, "").Infof("Dump of `%s` completed", target.dbName)
 
 	return nil
 }

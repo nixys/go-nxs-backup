@@ -15,11 +15,11 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/targz"
+	"nxs-backup/modules/logger"
 )
 
 type job struct {
@@ -153,12 +153,12 @@ func (j *job) IsBackupSafety() bool {
 	return j.safetyBackup
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
-	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
+func (j *job) DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error {
+	return j.storages.DeleteOldBackups(logCh, j, ofsPath)
 }
 
-func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
-	return j.storages.CleanupTmpData(appCtx, j)
+func (j *job) CleanupTmpData() error {
+	return j.storages.CleanupTmpData(j)
 }
 
 func (j *job) NeedToMakeBackup() bool {
@@ -169,16 +169,16 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return true
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
-		mtd, initMeta, err := j.getMetadata(appCtx, ofsPart)
+		mtd, initMeta, err := j.getMetadata(logCh, ofsPart)
 
 		if initMeta {
-			appCtx.Log().Info("Incremental backup will be reinitialized")
+			logCh <- logger.Log(j.name, "").Info("Incremental backup will be reinitialized.")
 
-			if err = j.DeleteOldBackups(appCtx, ofsPart); err != nil {
+			if err = j.DeleteOldBackups(logCh, ofsPart); err != nil {
 				errs = multierror.Append(errs, err)
 			}
 		}
@@ -186,34 +186,34 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
 		err = os.MkdirAll(path.Dir(tmpBackupFile), os.ModePerm)
 		if err != nil {
-			appCtx.Log().Errorf("Job `%s` failed. Unable to create tmp dir with next error: %s", j.name, err)
+			logCh <- logger.Log(j.name, "").Errorf("Unable to create tmp dir with next error: %s", err)
 			errs = multierror.Append(errs, err)
 			continue
 		}
 
 		if err = j.createTmpBackup(tmpBackupFile, tgt, mtd, initMeta); err != nil {
-			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
-			appCtx.Log().Error(err)
+			logCh <- logger.Log(j.name, "").Errorf("Failed to create temp backups %s", tmpBackupFile)
+			logCh <- logger.Log(j.name, "").Error(err)
 			errs = multierror.Append(errs, err)
 			continue
 		}
 
-		appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
+		logCh <- logger.Log(j.name, "").Debugf("Created temp backups %s", tmpBackupFile)
 
 		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 		if j.deferredCopyingLevel <= 0 {
-			err = j.storages.Delivery(appCtx, j)
+			err = j.storages.Delivery(logCh, j)
 			if err != nil {
-				appCtx.Log().Errorf("Failed to delivery backup by job %s. Errors: %v", j.name, err)
+				logCh <- logger.Log(j.name, "").Errorf("Failed to delivery backup. Errors: %v", err)
 				errs = multierror.Append(errs, err)
 			}
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		err := j.storages.Delivery(appCtx, j)
+		err := j.storages.Delivery(logCh, j)
 		if err != nil {
-			appCtx.Log().Errorf("Failed to delivery backup by job %s. Errors: %v", j.name, err)
+			logCh <- logger.Log(j.name, "").Errorf("Failed to delivery backup. Errors: %v", err)
 			errs = multierror.Append(errs, err)
 		}
 	}
@@ -221,7 +221,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
 	return errs.ErrorOrNil()
 }
 
-func (j *job) getMetadata(appCtx *appctx.AppContext, ofsPart string) (mtd metadata, initMeta bool, err error) {
+func (j *job) getMetadata(logCh chan logger.LogRecord, ofsPart string) (mtd metadata, initMeta bool, err error) {
 	var yearMetaFile, monthMetaFile, dayMetaFile io.Reader
 
 	mtd = make(metadata)
@@ -232,41 +232,41 @@ func (j *job) getMetadata(appCtx *appctx.AppContext, ofsPart string) (mtd metada
 
 	initMeta = misc.GetDateTimeNow("doy") == misc.YearlyBackupDay
 
-	yearMetaFile, err = j.getMetadataFile(appCtx, ofsPart, "year.inc")
+	yearMetaFile, err = j.getMetadataFile(logCh, ofsPart, "year.inc")
 	if err != nil {
-		appCtx.Log().Warnf("Failed to find backup year metadata by job %s. Error: %v", j.name, err)
+		logCh <- logger.Log(j.name, "").Warnf("Failed to find backup year metadata. Error: %v", err)
 		initMeta = true
 	}
 
 	if !initMeta {
 		if !misc.Contains(misc.DecadesBackupDays, dom) {
-			dayMetaFile, err = j.getMetadataFile(appCtx, ofsPart, "day.inc")
+			dayMetaFile, err = j.getMetadataFile(logCh, ofsPart, "day.inc")
 			if err != nil {
-				appCtx.Log().Errorf("Failed to find backup day metadata by job %s", j.name)
+				logCh <- logger.Log(j.name, "").Error("Failed to find backup day metadata.")
 				return
 			} else {
-				mtd, err = j.readMetadata(appCtx, dayMetaFile)
+				mtd, err = j.readMetadata(logCh, dayMetaFile)
 				if err != nil {
-					appCtx.Log().Errorf("Failed to read backup day metadata by job %s", j.name)
+					logCh <- logger.Log(j.name, "").Error("Failed to read backup day metadata.")
 					return
 				}
 			}
 		} else if moy != "1" {
-			monthMetaFile, err = j.getMetadataFile(appCtx, ofsPart, "month.inc")
+			monthMetaFile, err = j.getMetadataFile(logCh, ofsPart, "month.inc")
 			if err != nil {
-				appCtx.Log().Errorf("Failed to find backup month metadata by job %s", j.name)
+				logCh <- logger.Log(j.name, "").Error("Failed to find backup month metadata.")
 				return
 			} else {
-				mtd, err = j.readMetadata(appCtx, monthMetaFile)
+				mtd, err = j.readMetadata(logCh, monthMetaFile)
 				if err != nil {
-					appCtx.Log().Errorf("Failed to read backup month metadata by job %s", j.name)
+					logCh <- logger.Log(j.name, "").Error("Failed to read backup month metadata")
 					return
 				}
 			}
 		} else {
-			mtd, err = j.readMetadata(appCtx, yearMetaFile)
+			mtd, err = j.readMetadata(logCh, yearMetaFile)
 			if err != nil {
-				appCtx.Log().Errorf("Failed to read backup year metadata by job %s", j.name)
+				logCh <- logger.Log(j.name, "").Error("Failed to read backup year metadata.")
 				return
 			}
 		}
@@ -275,7 +275,7 @@ func (j *job) getMetadata(appCtx *appctx.AppContext, ofsPart string) (mtd metada
 }
 
 // check and get metadata files (include remote storages)
-func (j *job) getMetadataFile(appCtx *appctx.AppContext, ofsPart, metadata string) (reader io.Reader, err error) {
+func (j *job) getMetadataFile(logCh chan logger.LogRecord, ofsPart, metadata string) (reader io.Reader, err error) {
 	year := misc.GetDateTimeNow("year")
 
 	for i := len(j.storages) - 1; i >= 0; i-- {
@@ -283,7 +283,7 @@ func (j *job) getMetadataFile(appCtx *appctx.AppContext, ofsPart, metadata strin
 
 		reader, err = st.GetFileReader(path.Join(ofsPart, year, "inc_meta_info", metadata))
 		if err != nil {
-			appCtx.Log().WithField("storage", st.GetName()).Warnf("Unable to get previous metadata '%s' from storage. Error: %s ", metadata, err)
+			logCh <- logger.Log(j.name, st.GetName()).Warnf("Unable to get previous metadata '%s' from storage. Error: %s ", metadata, err)
 			continue
 		}
 		break
@@ -297,18 +297,18 @@ func (j *job) getMetadataFile(appCtx *appctx.AppContext, ofsPart, metadata strin
 }
 
 // read metadata from file
-func (j *job) readMetadata(appCtx *appctx.AppContext, fileReader io.Reader) (mtd metadata, err error) {
+func (j *job) readMetadata(logCh chan logger.LogRecord, fileReader io.Reader) (mtd metadata, err error) {
 	mtd = make(metadata)
 
 	byteValue, err := io.ReadAll(fileReader)
 	if err != nil {
-		appCtx.Log().Errorf("Failed to read metadata file. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Failed to read metadata file. Error: %s", err)
 		return
 	}
 
 	err = json.Unmarshal(byteValue, &mtd)
 	if err != nil {
-		appCtx.Log().Errorf("Failed to parse metadata file. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Failed to parse metadata file. Error: %s", err)
 	}
 
 	return

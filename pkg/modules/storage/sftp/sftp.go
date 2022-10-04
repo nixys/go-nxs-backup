@@ -15,13 +15,12 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
 	"github.com/pkg/sftp"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
+	"nxs-backup/modules/logger"
 	. "nxs-backup/modules/storage"
 )
 
@@ -29,7 +28,6 @@ type SFTP struct {
 	client     *sftp.Client
 	backupPath string
 	name       string
-	logFields  logrus.Fields
 	Retention
 }
 
@@ -81,9 +79,8 @@ func Init(name string, params Params) (*SFTP, error) {
 	}
 
 	return &SFTP{
-		name:      name,
-		logFields: logrus.Fields{"storage": name},
-		client:    sftpClient,
+		name:   name,
+		client: sftpClient,
 	}, nil
 
 }
@@ -98,7 +95,7 @@ func (s *SFTP) SetRetention(r Retention) {
 	s.Retention = r
 }
 
-func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bakType string) (err error) {
+func (s *SFTP) DeliveryBackup(logCh chan logger.LogRecord, jobName, tmpBackupFile, ofs, bakType string) (err error) {
 	var (
 		bakDstPath, mtdDstPath string
 		links                  map[string]string
@@ -110,12 +107,12 @@ func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bak
 		bakDstPath, links, err = GetDescBackupDstAndLinks(tmpBackupFile, ofs, s.backupPath, s.Retention)
 	}
 	if err != nil {
-		appCtx.Log().WithFields(s.logFields).Errorf("Unable to get destination path and links: '%s'", err)
+		logCh <- logger.Log(jobName, s.name).Errorf("Unable to get destination path and links: '%s'", err)
 		return
 	}
 
 	if mtdDstPath != "" {
-		if err = s.deliveryBackupMetadata(appCtx, tmpBackupFile, mtdDstPath); err != nil {
+		if err = s.deliveryBackupMetadata(logCh, jobName, tmpBackupFile, mtdDstPath); err != nil {
 			return
 		}
 	}
@@ -123,41 +120,41 @@ func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bak
 	// Make remote directories
 	rmDir := path.Dir(bakDstPath)
 	if err = s.client.MkdirAll(rmDir); err != nil {
-		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
+		logCh <- logger.Log(jobName, s.name).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
 		return err
 	}
 
 	dstFile, err := s.client.Create(bakDstPath)
 	if err != nil {
-		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote file: %s", err)
+		logCh <- logger.Log(jobName, s.name).Errorf("Unable to create remote file: %s", err)
 		return err
 	}
 	defer func() { _ = dstFile.Close() }()
 
 	srcFile, err := os.Open(tmpBackupFile)
 	if err != nil {
-		appCtx.Log().WithFields(s.logFields).Errorf("Unable to open tmp backup: '%s'", err)
+		logCh <- logger.Log(jobName, s.name).Errorf("Unable to open tmp backup: '%s'", err)
 		return err
 	}
 	defer func() { _ = srcFile.Close() }()
 
 	_, err = io.Copy(dstFile, srcFile)
 	if err != nil {
-		appCtx.Log().WithFields(s.logFields).Errorf("Unable to upload file: %s", err)
+		logCh <- logger.Log(jobName, s.name).Errorf("Unable to upload file: %s", err)
 		return err
 	}
-	appCtx.Log().WithFields(s.logFields).Infof("file %s uploaded", dstFile.Name())
+	logCh <- logger.Log(jobName, s.name).Infof("file %s uploaded", dstFile.Name())
 
 	for dst, src := range links {
 		rmDir = path.Dir(dst)
 		err = s.client.MkdirAll(rmDir)
 		if err != nil {
-			appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
+			logCh <- logger.Log(jobName, s.name).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
 			return
 		}
 		err = s.client.Symlink(src, dst)
 		if err != nil {
-			appCtx.Log().WithFields(s.logFields).Errorf("Unable to create symlink: %s", err)
+			logCh <- logger.Log(jobName, s.name).Errorf("Unable to create symlink: %s", err)
 			return
 		}
 	}
@@ -165,13 +162,13 @@ func (s *SFTP) DeliveryBackup(appCtx *appctx.AppContext, tmpBackupFile, ofs, bak
 	return
 }
 
-func (s *SFTP) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile, mtdDstPath string) error {
+func (s *SFTP) deliveryBackupMetadata(logCh chan logger.LogRecord, jobName, tmpBackupFile, mtdDstPath string) error {
 	mtdSrcPath := tmpBackupFile + ".inc"
 
 	// Make remote directories
 	rmDir := path.Dir(mtdDstPath)
 	if err := s.client.MkdirAll(rmDir); err != nil {
-		appCtx.Log().WithFields(s.logFields).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
+		logCh <- logger.Log(jobName, s.name).Errorf("Unable to create remote directory '%s': '%s'", rmDir, err)
 		return err
 	}
 
@@ -190,23 +187,23 @@ func (s *SFTP) deliveryBackupMetadata(appCtx *appctx.AppContext, tmpBackupFile, 
 
 	_, err = io.Copy(mtdDst, mtdSrc)
 	if err != nil {
-		appCtx.Log().WithFields(s.logFields).Errorf("Unable to make copy: %s", err)
+		logCh <- logger.Log(jobName, s.name).Errorf("Unable to make copy: %s", err)
 		return err
 	}
-	appCtx.Log().WithFields(s.logFields).Infof("Successfully copied metadata to %s", mtdDstPath)
+	logCh <- logger.Log(jobName, s.name).Infof("Successfully copied metadata to %s", mtdDstPath)
 
 	return nil
 }
 
-func (s *SFTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string, bakType string, full bool) (err error) {
+func (s *SFTP) DeleteOldBackups(logCh chan logger.LogRecord, ofsPartsList []string, jobName, bakType string, full bool) (err error) {
 
 	var errs *multierror.Error
 
 	for _, ofsPart := range ofsPartsList {
 		if bakType == misc.IncBackupType {
-			err = s.deleteIncBackup(appCtx, ofsPart, full)
+			err = s.deleteIncBackup(logCh, jobName, ofsPart, full)
 		} else {
-			err = s.deleteDescBackup(appCtx, ofsPart)
+			err = s.deleteDescBackup(logCh, jobName, ofsPart)
 		}
 		if err != nil {
 			errs = multierror.Append(errs, err)
@@ -216,7 +213,7 @@ func (s *SFTP) DeleteOldBackups(appCtx *appctx.AppContext, ofsPartsList []string
 	return errs.ErrorOrNil()
 }
 
-func (s *SFTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error {
+func (s *SFTP) deleteDescBackup(logCh chan logger.LogRecord, jobName, ofsPart string) error {
 	var errs *multierror.Error
 	curDate := time.Now()
 
@@ -227,7 +224,7 @@ func (s *SFTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			appCtx.Log().WithFields(s.logFields).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
+			logCh <- logger.Log(jobName, s.name).Errorf("Failed to read files in remote directory '%s' with next error: %s", bakDir, err)
 			return err
 		}
 
@@ -248,11 +245,11 @@ func (s *SFTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error
 			if curDate.After(retentionDate) {
 				err = s.client.Remove(path.Join(bakDir, file.Name()))
 				if err != nil {
-					appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
+					logCh <- logger.Log(jobName, s.name).Errorf("Failed to delete file '%s' in remote directory '%s' with next error: %s",
 						file.Name(), bakDir, err)
 					errs = multierror.Append(errs, err)
 				} else {
-					appCtx.Log().WithFields(s.logFields).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
+					logCh <- logger.Log(jobName, s.name).Infof("Deleted old backup file '%s' in remote directory '%s'", file.Name(), bakDir)
 				}
 			}
 		}
@@ -261,13 +258,13 @@ func (s *SFTP) deleteDescBackup(appCtx *appctx.AppContext, ofsPart string) error
 	return errs.ErrorOrNil()
 }
 
-func (s *SFTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full bool) error {
+func (s *SFTP) deleteIncBackup(logCh chan logger.LogRecord, jobName, ofsPart string, full bool) error {
 	var errs *multierror.Error
 
 	if full {
 		backupDir := path.Join(s.backupPath, ofsPart)
 		if err := s.client.Remove(backupDir); err != nil {
-			appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
+			logCh <- logger.Log(jobName, s.name).Errorf("Failed to delete '%s' with next error: %s", backupDir, err)
 			errs = multierror.Append(errs, err)
 		}
 	} else {
@@ -286,7 +283,7 @@ func (s *SFTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full b
 
 		dirs, err := s.client.ReadDir(backupDir)
 		if err != nil {
-			appCtx.Log().WithFields(s.logFields).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
+			logCh <- logger.Log(jobName, s.name).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
 		rx := regexp.MustCompile("month_\\d\\d")
@@ -297,7 +294,7 @@ func (s *SFTP) deleteIncBackup(appCtx *appctx.AppContext, ofsPart string, full b
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = s.client.Remove(path.Join(backupDir, dirName)); err != nil {
-						appCtx.Log().WithFields(s.logFields).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
+						logCh <- logger.Log(jobName, s.name).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
 							dirName, backupDir, err)
 						errs = multierror.Append(errs, err)
 					}

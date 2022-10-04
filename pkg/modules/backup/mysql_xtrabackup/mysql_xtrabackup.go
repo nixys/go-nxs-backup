@@ -9,13 +9,13 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-multierror"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/mysql_connect"
+	"nxs-backup/modules/logger"
 )
 
 type job struct {
@@ -170,40 +170,40 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
-	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
+func (j *job) DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error {
+	return j.storages.DeleteOldBackups(logCh, j, ofsPath)
 }
 
-func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
-	return j.storages.CleanupTmpData(appCtx, j)
+func (j *job) CleanupTmpData() error {
+	return j.storages.CleanupTmpData(j)
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
 
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
 
-		if err := createTmpBackup(appCtx, tmpBackupFile, tgt); err != nil {
-			appCtx.Log().Errorf("Failed to create temp backups %s by job %s", tmpBackupFile, j.name)
+		if err := j.createTmpBackup(logCh, tmpBackupFile, tgt); err != nil {
+			logCh <- logger.Log(j.name, "").Errorf("Failed to create temp backups %s", tmpBackupFile)
 			errs = multierror.Append(errs, err)
 			continue
 		} else {
-			appCtx.Log().Infof("Created temp backups %s by job %s", tmpBackupFile, j.name)
+			logCh <- logger.Log(j.name, "").Debugf("Created temp backups %s", tmpBackupFile)
 		}
 
 		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
 		if j.deferredCopyingLevel <= 0 {
-			if err := j.storages.Delivery(appCtx, j); err != nil {
+			if err := j.storages.Delivery(logCh, j); err != nil {
 				errs = multierror.Append(errs, err)
 			}
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		if err := j.storages.Delivery(appCtx, j); err != nil {
+		if err := j.storages.Delivery(logCh, j); err != nil {
 			errs = multierror.Append(errs, err)
 		}
 	}
@@ -211,7 +211,7 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
 	return errs.ErrorOrNil()
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target target) error {
+func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpBackupFile string, target target) error {
 
 	var (
 		stderr, stdout          bytes.Buffer
@@ -242,20 +242,20 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target tar
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		appCtx.Log().Errorf("Unable to start xtrabackup. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to start xtrabackup. Error: %s", err)
 		return err
 	}
-	appCtx.Log().Infof("Starting `%s` dump", target.dbName)
+	logCh <- logger.Log(j.name, "").Infof("Starting `%s` dump", target.dbName)
 
 	if err := cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, err)
-		appCtx.Log().Error(stderr)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to dump `%s`. Error: %s", target.dbName, err)
+		logCh <- logger.Log(j.name, "").Error(stderr)
 		return err
 	}
 
 	if err := checkXtrabackupStatus(stderr.String()); err != nil {
 		_ = os.WriteFile("/home/r.andreev/Projects/NxsProjects/nxs-backup/tmp/test/file.log", stderr.Bytes(), 0644)
-		appCtx.Log().Errorf("Dump create fail. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Dump create fail. Error: %s", err)
 		return err
 	}
 
@@ -270,24 +270,24 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target tar
 		cmd.Stderr = &stderr
 
 		if err := cmd.Run(); err != nil {
-			appCtx.Log().Errorf("Unable to run xtrabackup. Error: %s", err)
-			appCtx.Log().Error(stderr)
+			logCh <- logger.Log(j.name, "").Errorf("Unable to run xtrabackup. Error: %s", err)
+			logCh <- logger.Log(j.name, "").Error(stderr)
 			return err
 		}
 
 		if err := checkXtrabackupStatus(stderr.String()); err != nil {
-			appCtx.Log().Errorf("Xtrabackup prepare fail. Error: %s", err)
+			logCh <- logger.Log(j.name, "").Errorf("Xtrabackup prepare fail. Error: %s", err)
 			return err
 		}
 	}
 
 	if err := targz.Tar(tmpXtrabackupPath, tmpBackupFile, target.gzip, false, nil); err != nil {
-		appCtx.Log().Errorf("Unable to make tar: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to make tar: %s", err)
 		return err
 	}
 	_ = os.RemoveAll(tmpXtrabackupPath)
 
-	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
+	logCh <- logger.Log(j.name, "").Infof("Dump of `%s` completed", target.dbName)
 
 	return nil
 }

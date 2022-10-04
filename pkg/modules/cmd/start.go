@@ -23,7 +23,7 @@ func Start(appCtx *appctx.AppContext) error {
 		if len(cc.FilesJobs) > 0 {
 			appCtx.Log().Info("Starting backup files jobs.")
 			for _, job := range cc.FilesJobs {
-				if err := backup.Perform(appCtx, job); err != nil {
+				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
@@ -35,7 +35,7 @@ func Start(appCtx *appctx.AppContext) error {
 		if len(cc.DBsJobs) > 0 {
 			appCtx.Log().Info("Starting backup databases jobs.")
 			for _, job := range cc.DBsJobs {
-				if err := backup.Perform(appCtx, job); err != nil {
+				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
@@ -47,7 +47,7 @@ func Start(appCtx *appctx.AppContext) error {
 		if len(cc.ExternalJobs) > 0 {
 			appCtx.Log().Info("Starting backup external jobs.")
 			for _, job := range cc.ExternalJobs {
-				if err := backup.Perform(appCtx, job); err != nil {
+				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
@@ -58,7 +58,7 @@ func Start(appCtx *appctx.AppContext) error {
 
 	for _, job := range cc.Jobs {
 		if job.GetName() == jobNameArg {
-			if err := backup.Perform(appCtx, job); err != nil {
+			if err := backup.Perform(cc.LogCh, job); err != nil {
 				errs = multierror.Append(errs, err)
 			}
 		}

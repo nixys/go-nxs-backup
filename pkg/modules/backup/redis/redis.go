@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/redis_connect"
+	"nxs-backup/modules/logger"
 )
 
 type job struct {
@@ -130,40 +130,40 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
-	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
+func (j *job) DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error {
+	return j.storages.DeleteOldBackups(logCh, j, ofsPath)
 }
 
-func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
-	return j.storages.CleanupTmpData(appCtx, j)
+func (j *job) CleanupTmpData() error {
+	return j.storages.CleanupTmpData(j)
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
 
-		if err := j.createTmpBackup(appCtx, tmpDir, ofsPart, tgt); err != nil {
-			appCtx.Log().Errorf("Failed to create temp backup by job %s", j.name)
+		if err := j.createTmpBackup(logCh, tmpDir, ofsPart, tgt); err != nil {
+			logCh <- logger.Log(j.name, "").Error("Failed to create temp backup.")
 			errs = multierror.Append(errs, err)
 			continue
 		}
 
 		if j.deferredCopyingLevel <= 0 {
-			err := j.storages.Delivery(appCtx, j)
+			err := j.storages.Delivery(logCh, j)
 			errs = multierror.Append(errs, err)
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		err := j.storages.Delivery(appCtx, j)
+		err := j.storages.Delivery(logCh, j)
 		errs = multierror.Append(errs, err)
 	}
 
 	return errs.ErrorOrNil()
 }
 
-func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir, tgtName string, tgt target) error {
+func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpDir, tgtName string, tgt target) error {
 
 	var stderr, stdout bytes.Buffer
 
@@ -183,26 +183,26 @@ func (j *job) createTmpBackup(appCtx *appctx.AppContext, tmpDir, tgtName string,
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		appCtx.Log().Errorf("Unable to start redis-cli. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to start redis-cli. Error: %s", err)
 		return err
 	}
-	appCtx.Log().Infof("Starting to dump `%s` source", tgtName)
+	logCh <- logger.Log(j.name, "").Infof("Starting to dump `%s` source", tgtName)
 
 	if err := cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to make dump `%s`. Error: %s", tgtName, stderr.String())
+		logCh <- logger.Log(j.name, "").Errorf("Unable to make dump `%s`. Error: %s", tgtName, stderr.String())
 		return err
 	}
 
 	if tgt.gzip {
 		if err := targz.GZip(tmpBackupRdb, tmpBackupFile); err != nil {
-			appCtx.Log().Errorf("Unable to archivate tmp backup: %s", err)
+			logCh <- logger.Log(j.name, "").Errorf("Unable to archivate tmp backup: %s", err)
 			return err
 		}
 		_ = os.RemoveAll(tmpBackupRdb)
 	}
 
-	appCtx.Log().Infof("Dumping of source `%s` completed", tgtName)
-	appCtx.Log().Infof("Created temp backup %s by job %s", tmpBackupFile, j.name)
+	logCh <- logger.Log(j.name, "").Infof("Dumping of source `%s` completed", tgtName)
+	logCh <- logger.Log(j.name, "").Debugf("Created temp backup %s", tmpBackupFile)
 
 	j.dumpedObjects[tgtName] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 

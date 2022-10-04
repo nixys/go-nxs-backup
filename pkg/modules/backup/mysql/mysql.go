@@ -9,13 +9,13 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/jmoiron/sqlx"
-	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
 	"nxs-backup/modules/backend/exec_cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/mysql_connect"
+	"nxs-backup/modules/logger"
 )
 
 type job struct {
@@ -165,40 +165,40 @@ func (j *job) NeedToUpdateIncMeta() bool {
 	return false
 }
 
-func (j *job) DeleteOldBackups(appCtx *appctx.AppContext, ofsPath string) error {
-	return j.storages.DeleteOldBackups(appCtx, j, ofsPath)
+func (j *job) DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error {
+	return j.storages.DeleteOldBackups(logCh, j, ofsPath)
 }
 
-func (j *job) CleanupTmpData(appCtx *appctx.AppContext) error {
-	return j.storages.CleanupTmpData(appCtx, j)
+func (j *job) CleanupTmpData() error {
+	return j.storages.CleanupTmpData(j)
 }
 
-func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
+func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
 
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "sql", "", tgt.gzip)
 
-		if err := createTmpBackup(appCtx, tmpBackupFile, tgt); err != nil {
-			appCtx.Log().Errorf("Job %s. Unable to create temp backups %s", j.name, tmpBackupFile)
+		if err := j.createTmpBackup(logCh, tmpBackupFile, tgt); err != nil {
+			logCh <- logger.Log(j.name, "").Errorf("Unable to create temp backups %s", tmpBackupFile)
 			errs = multierror.Append(errs, err)
 			continue
 		} else {
-			appCtx.Log().Infof("Job %s. Created temp backups %s", j.name, tmpBackupFile)
+			logCh <- logger.Log(j.name, "").Debugf("Created temp backups %s", tmpBackupFile)
 		}
 
 		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
 		if j.deferredCopyingLevel <= 0 {
-			if err := j.storages.Delivery(appCtx, j); err != nil {
+			if err := j.storages.Delivery(logCh, j); err != nil {
 				errs = multierror.Append(errs, err)
 			}
 		}
 	}
 
 	if j.deferredCopyingLevel >= 1 {
-		if err := j.storages.Delivery(appCtx, j); err != nil {
+		if err := j.storages.Delivery(logCh, j); err != nil {
 			errs = multierror.Append(errs, err)
 		}
 	}
@@ -206,12 +206,12 @@ func (j *job) DoBackup(appCtx *appctx.AppContext, tmpDir string) error {
 	return errs.ErrorOrNil()
 }
 
-func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target target) error {
+func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpBackupFile string, target target) error {
 	var errs *multierror.Error
 
 	backupWriter, err := targz.GetFileWriter(tmpBackupFile, target.gzip)
 	if err != nil {
-		appCtx.Log().Errorf("Unable to create tmp file. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to create tmp file. Error: %s", err)
 		errs = multierror.Append(errs, err)
 		return errs
 	}
@@ -220,18 +220,18 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target tar
 	if target.isSlave {
 		_, err = target.connect.Exec("STOP SLAVE")
 		if err != nil {
-			appCtx.Log().Errorf("Unable to stop slave. Error: %s", err)
+			logCh <- logger.Log(j.name, "").Errorf("Unable to stop slave. Error: %s", err)
 			errs = multierror.Append(errs, err)
 			return errs
 		}
-		appCtx.Log().Infof("Slave stopped")
+		logCh <- logger.Log(j.name, "").Infof("Slave stopped")
 		defer func() {
 			_, err = target.connect.Exec("START SLAVE")
 			if err != nil {
-				appCtx.Log().Errorf("Unable to start slave. Error: %s", err)
+				logCh <- logger.Log(j.name, "").Errorf("Unable to start slave. Error: %s", err)
 				errs = multierror.Append(errs, err)
 			} else {
-				appCtx.Log().Infof("Slave started")
+				logCh <- logger.Log(j.name, "").Infof("Slave started")
 			}
 		}()
 	}
@@ -256,19 +256,19 @@ func createTmpBackup(appCtx *appctx.AppContext, tmpBackupFile string, target tar
 	cmd.Stderr = &stderr
 
 	if err = cmd.Start(); err != nil {
-		appCtx.Log().Errorf("Unable to start mysqldump. Error: %s", err)
+		logCh <- logger.Log(j.name, "").Errorf("Unable to start mysqldump. Error: %s", err)
 		errs = multierror.Append(errs, err)
 		return errs
 	}
-	appCtx.Log().Infof("Starting a `%s` dump", target.dbName)
+	logCh <- logger.Log(j.name, "").Infof("Starting a `%s` dump", target.dbName)
 
 	if err = cmd.Wait(); err != nil {
-		appCtx.Log().Errorf("Unable to dump `%s`. Error: %s", target.dbName, stderr.String())
+		logCh <- logger.Log(j.name, "").Errorf("Unable to dump `%s`. Error: %s", target.dbName, stderr.String())
 		errs = multierror.Append(errs, err)
 		return errs
 	}
 
-	appCtx.Log().Infof("Dump of `%s` completed", target.dbName)
+	logCh <- logger.Log(j.name, "").Infof("Dump of `%s` completed", target.dbName)
 
 	return errs.ErrorOrNil()
 }

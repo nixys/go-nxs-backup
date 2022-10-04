@@ -7,6 +7,7 @@ import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
+	"nxs-backup/modules/logger"
 )
 
 // Ctx defines application custom context
@@ -17,6 +18,7 @@ type Ctx struct {
 	FilesJobs    interfaces.Jobs
 	DBsJobs      interfaces.Jobs
 	ExternalJobs interfaces.Jobs
+	LogCh        chan logger.LogRecord
 }
 
 // Init initiates application custom context
@@ -59,6 +61,8 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 			c.ExternalJobs = append(c.ExternalJobs, job)
 		}
 	}
+
+	c.LogCh = make(chan logger.LogRecord)
 
 	return appctx.CfgData{
 		LogFile:  conf.LogFile,
