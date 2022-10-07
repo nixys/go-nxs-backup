@@ -3,10 +3,12 @@ package ctx
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
+	"nxs-backup/modules/backend/mailer"
 	"nxs-backup/modules/logger"
 )
 
@@ -19,6 +21,8 @@ type Ctx struct {
 	DBsJobs      interfaces.Jobs
 	ExternalJobs interfaces.Jobs
 	LogCh        chan logger.LogRecord
+	Mailer       mailer.Mailer
+	WG           *sync.WaitGroup
 }
 
 // Init initiates application custom context
@@ -63,6 +67,14 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	}
 
 	c.LogCh = make(chan logger.LogRecord)
+
+	c.Mailer, err = mailerInit(conf)
+	if err != nil {
+		fmt.Println("Failed init mail notifications with next errors:")
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	c.WG = new(sync.WaitGroup)
 
 	return appctx.CfgData{
 		LogFile:  conf.LogFile,

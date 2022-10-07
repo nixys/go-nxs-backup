@@ -15,7 +15,8 @@ import (
 )
 
 type confOpts struct {
-	ServerName      string              `conf:"server_name" conf_extraopts:"required"`
+	ProjectName     string              `conf:"project_name"`
+	ServerName      string              `conf:"server_name" conf_extraopts:"default=localhost"`
 	Notifications   notifications       `conf:"notifications"`
 	Jobs            []cfgJob            `conf:"jobs"`
 	StorageConnects []cfgStorageConnect `conf:"storage_connects"`
@@ -37,11 +38,8 @@ type mailConf struct {
 	SmtpPort     int      `conf:"smtp_port"`
 	SmtpUser     string   `conf:"smtp_user"`
 	SmtpPassword string   `conf:"smtp_password"`
-	SmtpTimeout  string   `conf:"smtp_timeout" conf_extraopts:"default=10"`
-	AdminMail    string   `conf:"admin_mail"`
-	ClientMail   []string `conf:"client_mail"`
-	MailFrom     string   `conf:"mail_from"`
-	MessageLevel string   `conf:"message_level" conf_extraopts:"default=error"`
+	Recipients   []string `conf:"recipients"`
+	MessageLevel string   `conf:"message_level" conf_extraopts:"default=inf"`
 }
 
 type cfgJob struct {
@@ -191,12 +189,6 @@ func confRead(confPath string) (confOpts, error) {
 		}
 	}
 
-	err = c.validate()
-	if err != nil {
-		fmt.Println("The configuration is incorrect.")
-		return c, err
-	}
-
 	return c, nil
 }
 
@@ -256,9 +248,7 @@ func (c *confOpts) validate() error {
 
 	// emails validation
 	if c.Notifications.Mail.Enabled {
-		mailList := c.Notifications.Mail.ClientMail
-		mailList = append(mailList, c.Notifications.Mail.AdminMail)
-		mailList = append(mailList, c.Notifications.Mail.MailFrom)
+		mailList := c.Notifications.Mail.Recipients
 		for _, m := range mailList {
 			_, err := mail.ParseAddress(m)
 			if err != nil {

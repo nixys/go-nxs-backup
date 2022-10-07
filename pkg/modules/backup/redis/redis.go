@@ -11,7 +11,7 @@ import (
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/exec_cmd"
+	"nxs-backup/modules/backend/cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/redis_connect"
 	"nxs-backup/modules/logger"
@@ -52,7 +52,7 @@ type SourceParams struct {
 func Init(jp JobParams) (interfaces.Job, error) {
 
 	// check if redis-cli available
-	_, err := exec_cmd.Exec("redis-cli", "--version")
+	_, err := cmd.Exec("redis-cli", "--version")
 	if err != nil {
 		return nil, fmt.Errorf("Job `%s` init failed. Failed to check redis-cli version. Please check that `redis-cli` installed. Error: %s ", jp.Name, err)
 	}

@@ -1,4 +1,4 @@
-package exec_cmd
+package cmd
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"os/exec"
 )
 
-// Result contains command exec result
+// Result contains command exec Result
 type Result struct {
 	Stdout   string
 	Stderr   string

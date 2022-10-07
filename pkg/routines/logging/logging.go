@@ -7,7 +7,6 @@ import (
 
 	"nxs-backup/ctx"
 	"nxs-backup/modules/logger"
-	"nxs-backup/modules/notifier"
 )
 
 // Runtime executes the routine
@@ -19,7 +18,7 @@ func Runtime(c context.Context, appCtx *appctx.AppContext, crc chan interface{})
 		select {
 		case log := <-cc.LogCh:
 			logger.WriteLog(appCtx.Log(), log)
-			go notifier.Send(c, appCtx, log)
+			go cc.Mailer.Send(appCtx, log, cc.WG)
 		case <-c.Done():
 			// Program termination.
 			return

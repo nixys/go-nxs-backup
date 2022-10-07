@@ -8,6 +8,7 @@ import (
 
 	"nxs-backup/ctx"
 	"nxs-backup/modules/backup"
+	"nxs-backup/modules/logger"
 )
 
 func Start(appCtx *appctx.AppContext) error {
@@ -15,44 +16,44 @@ func Start(appCtx *appctx.AppContext) error {
 
 	cc := appCtx.CustomCtx().(*ctx.Ctx)
 
-	appCtx.Log().Info("Starting backup.")
+	cc.LogCh <- logger.Log("", "").Info("Backup starting.")
 
 	jobNameArg := cc.CmdParams.(*ctx.StartCmd).JobName
 
 	if jobNameArg == "files" || jobNameArg == "all" {
 		if len(cc.FilesJobs) > 0 {
-			appCtx.Log().Info("Starting backup files jobs.")
+			cc.LogCh <- logger.Log("", "").Info("Starting backup files jobs.")
 			for _, job := range cc.FilesJobs {
 				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
 		} else {
-			appCtx.Log().Info("No files jobs.")
+			cc.LogCh <- logger.Log("", "").Info("No files jobs.")
 		}
 	}
 	if jobNameArg == "databases" || jobNameArg == "all" {
 		if len(cc.DBsJobs) > 0 {
-			appCtx.Log().Info("Starting backup databases jobs.")
+			cc.LogCh <- logger.Log("", "").Info("Starting backup databases jobs.")
 			for _, job := range cc.DBsJobs {
 				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
 		} else {
-			appCtx.Log().Info("No databases jobs.")
+			cc.LogCh <- logger.Log("", "").Info("No databases jobs.")
 		}
 	}
 	if jobNameArg == "external" || jobNameArg == "all" {
 		if len(cc.ExternalJobs) > 0 {
-			appCtx.Log().Info("Starting backup external jobs.")
+			cc.LogCh <- logger.Log("", "").Info("Starting backup external jobs.")
 			for _, job := range cc.ExternalJobs {
 				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
 		} else {
-			appCtx.Log().Info("No external jobs.")
+			cc.LogCh <- logger.Log("", "").Info("No external jobs.")
 		}
 	}
 
@@ -68,6 +69,6 @@ func Start(appCtx *appctx.AppContext) error {
 		return fmt.Errorf("Some of backups failed with next errors:\n%v", errs)
 	}
 
-	appCtx.Log().Info("Finished.")
+	cc.LogCh <- logger.Log("", "").Info("Backup finished.")
 	return nil
 }

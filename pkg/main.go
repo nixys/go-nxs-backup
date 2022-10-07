@@ -44,8 +44,12 @@ func main() {
 	// Create notifications routine
 	appCtx.RoutineCreate(c, logging.Runtime)
 
+	cc := appCtx.CustomCtx().(*ctx.Ctx)
+
 	// exec found command
-	if err = a.CmdHandler(appCtx); err != nil {
+	err = a.CmdHandler(appCtx)
+	cc.WG.Wait()
+	if err != nil {
 		fmt.Println("exec error: ", err)
 		os.Exit(1)
 	}

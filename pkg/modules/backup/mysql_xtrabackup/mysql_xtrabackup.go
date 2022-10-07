@@ -12,7 +12,7 @@ import (
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/exec_cmd"
+	"nxs-backup/modules/backend/cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/mysql_connect"
 	"nxs-backup/modules/logger"
@@ -63,7 +63,7 @@ type SourceParams struct {
 func Init(jp JobParams) (interfaces.Job, error) {
 
 	// check if xtrabackup available
-	_, err := exec_cmd.Exec("xtrabackup", "--version")
+	_, err := cmd.Exec("xtrabackup", "--version")
 	if err != nil {
 		return nil, fmt.Errorf("failed to check xtrabackup version. Please check that `xtrabackup` installed. Error: %s", err)
 	}

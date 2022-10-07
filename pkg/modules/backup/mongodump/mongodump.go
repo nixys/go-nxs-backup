@@ -14,7 +14,7 @@ import (
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/exec_cmd"
+	"nxs-backup/modules/backend/cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/mongo_connect"
 	"nxs-backup/modules/logger"
@@ -62,7 +62,7 @@ type SourceParams struct {
 func Init(jp JobParams) (interfaces.Job, error) {
 
 	// check if mysqldump available
-	_, err := exec_cmd.Exec("mongodump", "--version")
+	_, err := cmd.Exec("mongodump", "--version")
 	if err != nil {
 		return nil, fmt.Errorf("Job `%s` init failed. Failed to check mongodump version. Please check that `mongodump` installed. Error: %s ", jp.Name, err)
 	}

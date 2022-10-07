@@ -11,7 +11,7 @@ import (
 
 	"nxs-backup/interfaces"
 	"nxs-backup/misc"
-	"nxs-backup/modules/backend/exec_cmd"
+	"nxs-backup/modules/backend/cmd"
 	"nxs-backup/modules/backend/targz"
 	"nxs-backup/modules/connectors/psql_connect"
 	"nxs-backup/modules/logger"
@@ -59,7 +59,7 @@ type SourceParams struct {
 func Init(jp JobParams) (interfaces.Job, error) {
 
 	// check if mysqldump available
-	_, err := exec_cmd.Exec("pg_dump", "--version")
+	_, err := cmd.Exec("pg_dump", "--version")
 	if err != nil {
 		return nil, fmt.Errorf("failed to check pg_dump version. Please check that `pg_dump` installed. Error: %s", err)
 	}
