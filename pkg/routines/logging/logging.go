@@ -19,6 +19,7 @@ func Runtime(c context.Context, appCtx *appctx.AppContext, crc chan interface{})
 		case log := <-cc.LogCh:
 			logger.WriteLog(appCtx.Log(), log)
 			go cc.Mailer.Send(appCtx, log, cc.WG)
+			go cc.Alerter.Send(appCtx, log, cc.WG)
 		case <-c.Done():
 			// Program termination.
 			return

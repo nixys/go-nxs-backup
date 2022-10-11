@@ -1,14 +1,13 @@
 package ctx
 
 import (
-	"errors"
 	"fmt"
 	"net/mail"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/sirupsen/logrus"
 
-	"nxs-backup/modules/backend/mailer"
+	"nxs-backup/modules/backend/notifier"
 )
 
 var messageLevels = map[string]logrus.Level{
@@ -32,23 +31,27 @@ var messageLevels = map[string]logrus.Level{
 	"INFO":    logrus.InfoLevel,
 }
 
-func mailerInit(conf confOpts) (mailer.Mailer, error) {
+func mailerInit(conf confOpts) (m notifier.Mailer, err error) {
 	var errs *multierror.Error
 
 	mailList := conf.Notifications.Mail.Recipients
-	for _, m := range mailList {
-		_, err := mail.ParseAddress(m)
+	for _, a := range mailList {
+		_, err = mail.ParseAddress(a)
 		if err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("  failed to parse email \"%s\". %s", m, err))
+			errs = multierror.Append(errs, fmt.Errorf("  failed to parse email \"%s\". %s", a, err))
 		}
 	}
 
 	ml, ok := messageLevels[conf.Notifications.Mail.MessageLevel]
 	if !ok {
-		errs = multierror.Append(errors.New("Unknown Mail message level. Available levels: 'INFO', 'WARN', 'ERR' "))
+		errs = multierror.Append(fmt.Errorf("Unknown Mail message level. Available levels: 'INFO', 'WARN', 'ERR' "))
+	}
+	if errs != nil {
+		err = errs
+		return
 	}
 
-	m, err := mailer.Init(mailer.MailOpts{
+	m, err = notifier.MailerInit(notifier.MailOpts{
 		Enabled:      conf.Notifications.Mail.Enabled,
 		SmtpServer:   conf.Notifications.Mail.SmtpServer,
 		SmtpPort:     conf.Notifications.Mail.SmtpPort,
@@ -59,9 +62,27 @@ func mailerInit(conf confOpts) (mailer.Mailer, error) {
 		ProjectName:  conf.ProjectName,
 		ServerName:   conf.ServerName,
 	})
-	if err != nil {
-		errs = multierror.Append(err)
+
+	return
+}
+
+func alerterInit(conf confOpts) (a notifier.AlertServer, err error) {
+
+	ml, ok := messageLevels[conf.Notifications.NxsAlert.MessageLevel]
+	if !ok {
+		err = fmt.Errorf("Unknown Mail message level. Available levels: 'INFO', 'WARN', 'ERR' ")
+		return
 	}
 
-	return m, errs.ErrorOrNil()
+	a, err = notifier.AlertServerInit(notifier.AlertServerOpts{
+		Enabled:      conf.Notifications.NxsAlert.Enabled,
+		NxsAlertURL:  conf.Notifications.NxsAlert.NxsAlertURL,
+		AuthKey:      conf.Notifications.NxsAlert.AuthKey,
+		InsecureTLS:  conf.Notifications.NxsAlert.InsecureTLS,
+		MessageLevel: ml,
+		ProjectName:  conf.ProjectName,
+		ServerName:   conf.ServerName,
+	})
+
+	return
 }

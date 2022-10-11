@@ -8,7 +8,7 @@ import (
 	appctx "github.com/nixys/nxs-go-appctx/v2"
 
 	"nxs-backup/interfaces"
-	"nxs-backup/modules/backend/mailer"
+	"nxs-backup/modules/backend/notifier"
 	"nxs-backup/modules/logger"
 )
 
@@ -21,7 +21,8 @@ type Ctx struct {
 	DBsJobs      interfaces.Jobs
 	ExternalJobs interfaces.Jobs
 	LogCh        chan logger.LogRecord
-	Mailer       mailer.Mailer
+	Mailer       notifier.Mailer
+	Alerter      notifier.AlertServer
 	WG           *sync.WaitGroup
 }
 
@@ -71,6 +72,12 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	c.Mailer, err = mailerInit(conf)
 	if err != nil {
 		fmt.Println("Failed init mail notifications with next errors:")
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	c.Alerter, err = alerterInit(conf)
+	if err != nil {
+		fmt.Println("Failed init nxs-alert notifications with next errors:")
 		fmt.Println(err)
 		os.Exit(1)
 	}
