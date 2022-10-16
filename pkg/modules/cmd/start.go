@@ -20,16 +20,16 @@ func Start(appCtx *appctx.AppContext) error {
 
 	jobNameArg := cc.CmdParams.(*ctx.StartCmd).JobName
 
-	if jobNameArg == "files" || jobNameArg == "all" {
-		if len(cc.FilesJobs) > 0 {
-			cc.LogCh <- logger.Log("", "").Info("Starting backup files jobs.")
-			for _, job := range cc.FilesJobs {
+	if jobNameArg == "external" || jobNameArg == "all" {
+		if len(cc.ExternalJobs) > 0 {
+			cc.LogCh <- logger.Log("", "").Info("Starting backup external jobs.")
+			for _, job := range cc.ExternalJobs {
 				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
 		} else {
-			cc.LogCh <- logger.Log("", "").Info("No files jobs.")
+			cc.LogCh <- logger.Log("", "").Info("No external jobs.")
 		}
 	}
 	if jobNameArg == "databases" || jobNameArg == "all" {
@@ -44,16 +44,16 @@ func Start(appCtx *appctx.AppContext) error {
 			cc.LogCh <- logger.Log("", "").Info("No databases jobs.")
 		}
 	}
-	if jobNameArg == "external" || jobNameArg == "all" {
-		if len(cc.ExternalJobs) > 0 {
-			cc.LogCh <- logger.Log("", "").Info("Starting backup external jobs.")
-			for _, job := range cc.ExternalJobs {
+	if jobNameArg == "files" || jobNameArg == "all" {
+		if len(cc.FilesJobs) > 0 {
+			cc.LogCh <- logger.Log("", "").Info("Starting backup files jobs.")
+			for _, job := range cc.FilesJobs {
 				if err := backup.Perform(cc.LogCh, job); err != nil {
 					errs = multierror.Append(errs, err)
 				}
 			}
 		} else {
-			cc.LogCh <- logger.Log("", "").Info("No external jobs.")
+			cc.LogCh <- logger.Log("", "").Info("No files jobs.")
 		}
 	}
 

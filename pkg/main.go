@@ -17,8 +17,9 @@ import (
 func main() {
 
 	subCmds := ctx.SubCmds{
-		"start":   cmd.Start,
-		"testCfg": cmd.TestConfig,
+		"start":    cmd.Start,
+		"testCfg":  cmd.TestConfig,
+		"generate": cmd.GenerateConfig,
 	}
 
 	// Read command line arguments

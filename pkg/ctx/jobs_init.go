@@ -24,7 +24,7 @@ import (
 	"nxs-backup/modules/storage"
 )
 
-var allowedJobTypes = []string{
+var AllowedJobTypes = []string{
 	"desc_files",
 	"inc_files",
 	"mysql",
@@ -36,7 +36,7 @@ var allowedJobTypes = []string{
 	"external",
 }
 
-func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]interfaces.Job, error) {
+func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]interfaces.Job, error) {
 	var errs *multierror.Error
 	var jobs []interfaces.Job
 
@@ -54,7 +54,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 		}
 
 		switch j.JobType {
-		case "desc_files":
+		case AllowedJobTypes[0]:
 			var sources []desc_files.SourceParams
 			for _, src := range j.Sources {
 				sources = append(sources, desc_files.SourceParams{
@@ -67,13 +67,13 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := desc_files.Init(desc_files.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				NeedToMakeBackup:     needToMakeBackup,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:             j.JobName,
+				TmpDir:           j.TmpDir,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				DeferredCopying:  j.DeferredCopying,
+				Storages:         jobStorages,
+				Sources:          sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -82,7 +82,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 
 			jobs = append(jobs, job)
 
-		case "inc_files":
+		case AllowedJobTypes[1]:
 			var sources []inc_files.SourceParams
 			for _, src := range j.Sources {
 				sources = append(sources, inc_files.SourceParams{
@@ -95,12 +95,12 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := inc_files.Init(inc_files.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:            j.JobName,
+				TmpDir:          j.TmpDir,
+				SafetyBackup:    j.SafetyBackup,
+				DeferredCopying: j.DeferredCopying,
+				Storages:        jobStorages,
+				Sources:         sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -109,7 +109,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 
 			jobs = append(jobs, job)
 
-		case "mysql":
+		case AllowedJobTypes[2]:
 			var sources []mysql.SourceParams
 
 			for _, src := range j.Sources {
@@ -137,13 +137,13 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := mysql.Init(mysql.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				NeedToMakeBackup:     needToMakeBackup,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:             j.JobName,
+				TmpDir:           j.TmpDir,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				DeferredCopying:  j.DeferredCopying,
+				Storages:         jobStorages,
+				Sources:          sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -151,7 +151,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 			jobs = append(jobs, job)
 
-		case "mysql_xtrabackup":
+		case AllowedJobTypes[3]:
 			var sources []mysql_xtrabackup.SourceParams
 
 			for _, src := range j.Sources {
@@ -180,13 +180,13 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := mysql_xtrabackup.Init(mysql_xtrabackup.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				NeedToMakeBackup:     needToMakeBackup,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:             j.JobName,
+				TmpDir:           j.TmpDir,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				DeferredCopying:  j.DeferredCopying,
+				Storages:         jobStorages,
+				Sources:          sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -194,7 +194,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 			jobs = append(jobs, job)
 
-		case "postgresql":
+		case AllowedJobTypes[4]:
 			var sources []psql.SourceParams
 
 			for _, src := range j.Sources {
@@ -222,13 +222,13 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := psql.Init(psql.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				NeedToMakeBackup:     needToMakeBackup,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:             j.JobName,
+				TmpDir:           j.TmpDir,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				DeferredCopying:  j.DeferredCopying,
+				Storages:         jobStorages,
+				Sources:          sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -236,7 +236,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 			jobs = append(jobs, job)
 
-		case "postgresql_basebackup":
+		case AllowedJobTypes[5]:
 			var sources []psql_basebackup.SourceParams
 
 			for _, src := range j.Sources {
@@ -262,13 +262,13 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := psql_basebackup.Init(psql_basebackup.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				NeedToMakeBackup:     needToMakeBackup,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:             j.JobName,
+				TmpDir:           j.TmpDir,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				DeferredCopying:  j.DeferredCopying,
+				Storages:         jobStorages,
+				Sources:          sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -276,7 +276,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 			jobs = append(jobs, job)
 
-		case "mongodb":
+		case AllowedJobTypes[6]:
 			var sources []mongodump.SourceParams
 
 			for _, src := range j.Sources {
@@ -305,13 +305,13 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := mongodump.Init(mongodump.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				NeedToMakeBackup:     needToMakeBackup,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:             j.JobName,
+				TmpDir:           j.TmpDir,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				DeferredCopying:  j.DeferredCopying,
+				Storages:         jobStorages,
+				Sources:          sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -319,7 +319,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 			jobs = append(jobs, job)
 
-		case "redis":
+		case AllowedJobTypes[7]:
 			var sources []redis.SourceParams
 
 			for _, src := range j.Sources {
@@ -336,13 +336,13 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 
 			job, err := redis.Init(redis.JobParams{
-				Name:                 j.JobName,
-				TmpDir:               j.TmpDir,
-				NeedToMakeBackup:     needToMakeBackup,
-				SafetyBackup:         j.SafetyBackup,
-				DeferredCopyingLevel: j.DeferredCopyingLevel,
-				Storages:             jobStorages,
-				Sources:              sources,
+				Name:             j.JobName,
+				TmpDir:           j.TmpDir,
+				NeedToMakeBackup: needToMakeBackup,
+				SafetyBackup:     j.SafetyBackup,
+				DeferredCopying:  j.DeferredCopying,
+				Storages:         jobStorages,
+				Sources:          sources,
 			})
 			if err != nil {
 				errs = multierror.Append(errs, err)
@@ -350,7 +350,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			}
 			jobs = append(jobs, job)
 
-		case "external":
+		case AllowedJobTypes[8]:
 			job, err := external.Init(external.JobParams{
 				Name:             j.JobName,
 				DumpCmd:          j.DumpCmd,
@@ -365,7 +365,7 @@ func jobsInit(cfgJobs []cfgJob, storages map[string]interfaces.Storage) ([]inter
 			jobs = append(jobs, job)
 
 		default:
-			errs = multierror.Append(errs, fmt.Errorf("unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(allowedJobTypes, ", ")))
+			errs = multierror.Append(errs, fmt.Errorf("unknown job type \"%s\". Allowd types: %s", j.JobType, strings.Join(AllowedJobTypes, ", ")))
 			continue
 		}
 	}

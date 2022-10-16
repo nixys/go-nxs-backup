@@ -23,14 +23,14 @@ import (
 )
 
 type job struct {
-	name                 string
-	tmpDir               string
-	metadataDir          string
-	safetyBackup         bool
-	deferredCopyingLevel int
-	storages             interfaces.Storages
-	targets              map[string]target
-	dumpedObjects        map[string]interfaces.DumpObject
+	name            string
+	tmpDir          string
+	metadataDir     string
+	safetyBackup    bool
+	deferredCopying bool
+	storages        interfaces.Storages
+	targets         map[string]target
+	dumpedObjects   map[string]interfaces.DumpObject
 }
 
 type target struct {
@@ -43,12 +43,12 @@ type target struct {
 type metadata map[string]float64
 
 type JobParams struct {
-	Name                 string
-	TmpDir               string
-	SafetyBackup         bool
-	DeferredCopyingLevel int
-	Storages             interfaces.Storages
-	Sources              []SourceParams
+	Name            string
+	TmpDir          string
+	SafetyBackup    bool
+	DeferredCopying bool
+	Storages        interfaces.Storages
+	Sources         []SourceParams
 }
 
 type SourceParams struct {
@@ -62,13 +62,13 @@ type SourceParams struct {
 func Init(jp JobParams) (interfaces.Job, error) {
 
 	j := &job{
-		name:                 jp.Name,
-		tmpDir:               jp.TmpDir,
-		safetyBackup:         jp.SafetyBackup,
-		deferredCopyingLevel: jp.DeferredCopyingLevel,
-		storages:             jp.Storages,
-		dumpedObjects:        make(map[string]interfaces.DumpObject),
-		targets:              make(map[string]target),
+		name:            jp.Name,
+		tmpDir:          jp.TmpDir,
+		safetyBackup:    jp.SafetyBackup,
+		deferredCopying: jp.DeferredCopying,
+		storages:        jp.Storages,
+		dumpedObjects:   make(map[string]interfaces.DumpObject),
+		targets:         make(map[string]target),
 	}
 
 	for _, src := range jp.Sources {
@@ -201,21 +201,17 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 		logCh <- logger.Log(j.name, "").Debugf("Created temp backups %s", tmpBackupFile)
 
 		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
-		if j.deferredCopyingLevel <= 0 {
-			err = j.storages.Delivery(logCh, j)
-			if err != nil {
+		if !j.deferredCopying {
+			if err = j.storages.Delivery(logCh, j); err != nil {
 				logCh <- logger.Log(j.name, "").Errorf("Failed to delivery backup. Errors: %v", err)
 				errs = multierror.Append(errs, err)
 			}
 		}
 	}
 
-	if j.deferredCopyingLevel >= 1 {
-		err := j.storages.Delivery(logCh, j)
-		if err != nil {
-			logCh <- logger.Log(j.name, "").Errorf("Failed to delivery backup. Errors: %v", err)
-			errs = multierror.Append(errs, err)
-		}
+	if err := j.storages.Delivery(logCh, j); err != nil {
+		logCh <- logger.Log(j.name, "").Errorf("Failed to delivery backup. Errors: %v", err)
+		errs = multierror.Append(errs, err)
 	}
 
 	return errs.ErrorOrNil()

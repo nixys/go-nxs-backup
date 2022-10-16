@@ -14,6 +14,7 @@ import (
 
 // Ctx defines application custom context
 type Ctx struct {
+	ConfigPath   string
 	CmdParams    interface{}
 	Storages     interfaces.Storages
 	Jobs         interfaces.Jobs
@@ -24,10 +25,17 @@ type Ctx struct {
 	Mailer       notifier.Mailer
 	Alerter      notifier.AlertServer
 	WG           *sync.WaitGroup
+
+	config confOpts
 }
 
 // Init initiates application custom context
 func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
+
+	// Set application context
+	arg := opts.Args.(*ArgsParams)
+	c.CmdParams = arg.CmdParams
+	c.ConfigPath = arg.ConfigPath
 
 	// Read config file
 	conf, err := confRead(opts.Config)
@@ -35,10 +43,7 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-
-	// Set application context
-	arg := opts.Args.(*ArgsParams)
-	c.CmdParams = arg.CmdParams
+	c.config = conf
 
 	storages, err := storagesInit(conf)
 	if err != nil {

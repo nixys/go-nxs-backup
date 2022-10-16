@@ -15,12 +15,12 @@ import (
 )
 
 type confOpts struct {
-	ProjectName     string              `conf:"project_name"`
-	ServerName      string              `conf:"server_name" conf_extraopts:"default=localhost"`
-	Notifications   notifications       `conf:"notifications"`
-	Jobs            []cfgJob            `conf:"jobs"`
-	StorageConnects []cfgStorageConnect `conf:"storage_connects"`
-	IncludeCfgs     []string            `conf:"include_jobs_configs"`
+	ProjectName     string           `conf:"project_name"`
+	ServerName      string           `conf:"server_name" conf_extraopts:"default=localhost"`
+	Notifications   notifications    `conf:"notifications"`
+	Jobs            []jobCfg         `conf:"jobs"`
+	StorageConnects []storageConnect `conf:"storage_connects"`
+	IncludeCfgs     []string         `conf:"include_jobs_configs"`
 
 	LogFile  string `conf:"logfile" conf_extraopts:"default=stdout"`
 	LogLevel string `conf:"loglevel" conf_extraopts:"default=info"`
@@ -51,21 +51,20 @@ type nxsAlertConf struct {
 	MessageLevel string `conf:"message_level" conf_extraopts:"default=warn"`
 }
 
-type cfgJob struct {
-	JobName              string        `conf:"job_name" conf_extraopts:"required"`
-	JobType              string        `conf:"type" conf_extraopts:"required"`
-	TmpDir               string        `conf:"tmp_dir"`
-	DumpCmd              string        `conf:"dump_cmd"`
-	SafetyBackup         bool          `conf:"safety_backup" conf_extraopts:"default=false"`
-	DeferredCopyingLevel int           `conf:"deferred_copying_level" conf_extraopts:"default=0"`
-	IncMonthsToStore     int           `conf:"inc_months_to_store" conf_extraopts:"default=12"`
-	Sources              []cfgSource   `conf:"sources"`
-	StoragesOptions      []storageOpts `conf:"storages_options"`
+type jobCfg struct {
+	JobName         string        `conf:"job_name" conf_extraopts:"required"`
+	JobType         string        `conf:"type" conf_extraopts:"required"`
+	TmpDir          string        `conf:"tmp_dir"`
+	DumpCmd         string        `conf:"dump_cmd"`
+	SafetyBackup    bool          `conf:"safety_backup" conf_extraopts:"default=false"`
+	DeferredCopying bool          `conf:"deferred_copying" conf_extraopts:"default=false"`
+	Sources         []sourceCfg   `conf:"sources"`
+	StoragesOptions []storageOpts `conf:"storages_options"`
 }
 
-type cfgSource struct {
+type sourceCfg struct {
 	Name               string `conf:"name" conf_extraopts:"required"`
-	Connect            cfgConnect
+	Connect            sourceConnect
 	SpecialKeys        string   `conf:"special_keys"`
 	Targets            []string `conf:"targets"`
 	TargetDbs          []string `conf:"target_dbs"`
@@ -81,7 +80,7 @@ type cfgSource struct {
 	PrepareXtrabackup  bool     `conf:"prepare_xtrabackup" conf_extraopts:"default=false"`
 }
 
-type cfgConnect struct {
+type sourceConnect struct {
 	AuthFile       string        `conf:"auth_file"`
 	DBHost         string        `conf:"db_host"`
 	DBPort         string        `conf:"db_port"`
@@ -95,27 +94,27 @@ type cfgConnect struct {
 	ConnectTimeout time.Duration `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
-type cfgStorageConnect struct {
+type storageOpts struct {
+	StorageName string    `conf:"storage_name" conf_extraopts:"required"`
+	BackupPath  string    `conf:"backup_path" conf_extraopts:"required"`
+	Retention   retention `conf:"retention" conf_extraopts:"required"`
+}
+
+type retention struct {
+	Days   int `conf:"days" conf_extraopts:"default=7"`
+	Weeks  int `conf:"weeks" conf_extraopts:"default=5"`
+	Months int `conf:"months" conf_extraopts:"default=12"`
+}
+
+type storageConnect struct {
 	Name         string        `conf:"name" conf_extraopts:"required"`
 	S3Params     *s3Params     `conf:"s3_params"`
+	ScpParams    *sftpParams   `conf:"scp_params"`
 	SftpParams   *sftpParams   `conf:"sftp_params"`
-	ScpOptions   *sftpParams   `conf:"scp_params"`
 	FtpParams    *ftpParams    `conf:"ftp_params"`
 	NfsParams    *nfsParams    `conf:"nfs_params"`
 	WebDavParams *webDavParams `conf:"webdav_params"`
 	SmbParams    *smbParams    `conf:"smb_params"`
-}
-
-type cfgRetention struct {
-	Days   int `conf:"days" conf_extraopts:"default=6"`
-	Weeks  int `conf:"weeks" conf_extraopts:"default=6"`
-	Months int `conf:"months" conf_extraopts:"default=12"`
-}
-
-type storageOpts struct {
-	StorageName string       `conf:"storage_name" conf_extraopts:"required"`
-	BackupPath  string       `conf:"backup_path" conf_extraopts:"required"`
-	Retention   cfgRetention `conf:"retention" conf_extraopts:"required"`
 }
 
 type s3Params struct {
@@ -227,7 +226,7 @@ func (c *confOpts) extraCfgsRead() error {
 					return err
 				}
 				if match && !info.IsDir() {
-					var j cfgJob
+					var j jobCfg
 
 					err = conf.Load(&j, conf.Settings{
 						ConfPath:    fp,

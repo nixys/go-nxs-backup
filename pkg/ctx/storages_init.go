@@ -26,14 +26,17 @@ var allowedConnectParams = []string{
 	"webdav_params",
 }
 
-func storagesInit(conf confOpts) (map[string]interfaces.Storage, error) {
+func storagesInit(conf confOpts) (storagesMap map[string]interfaces.Storage, err error) {
 	var errs *multierror.Error
-	var err error
 
-	storagesMap := make(map[string]interfaces.Storage)
+	storagesMap = make(map[string]interfaces.Storage)
 	storagesMap["local"] = local.Init()
 
 	for _, st := range conf.StorageConnects {
+		if _, exist := storagesMap[st.Name]; exist {
+			errs = multierror.Append(errs, fmt.Errorf("Storage with name `%s` already defined. Please check configs ", st.Name))
+			continue
+		}
 
 		if st.S3Params != nil {
 			storagesMap[st.Name], err = s3.Init(st.Name, s3.Params(*st.S3Params))
@@ -41,8 +44,8 @@ func storagesInit(conf confOpts) (map[string]interfaces.Storage, error) {
 				errs = multierror.Append(errs, err)
 			}
 
-		} else if st.ScpOptions != nil {
-			storagesMap[st.Name], err = sftp.Init(st.Name, sftp.Params(*st.ScpOptions))
+		} else if st.ScpParams != nil {
+			storagesMap[st.Name], err = sftp.Init(st.Name, sftp.Params(*st.ScpParams))
 			if err != nil {
 				errs = multierror.Append(errs, err)
 			}

@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/gomail.v2"
 
@@ -42,7 +41,7 @@ func MailerInit(mailCfg MailOpts) (Mailer, error) {
 		d := gomail.NewDialer(mailCfg.SmtpServer, mailCfg.SmtpPort, mailCfg.SmtpUser, mailCfg.SmtpPassword)
 		sc, err := d.Dial()
 		if err != nil {
-			return Mailer{}, errors.Errorf("Failed to dial SMTP server. Error: %v", err)
+			return Mailer{}, fmt.Errorf("Failed to dial SMTP server. Error: %v", err)
 		}
 		defer func() { _ = sc.Close() }()
 	}
