@@ -181,8 +181,13 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 
 		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
 
-		err := j.createTmpBackup(logCh, tmpBackupFile, tgt)
-		if err != nil {
+		if err := os.MkdirAll(path.Dir(tmpBackupFile), os.ModePerm); err != nil {
+			logCh <- logger.Log(j.name, "").Errorf("Unable to create tmp dir with next error: %s", err)
+			errs = multierror.Append(errs, err)
+			continue
+		}
+
+		if err := j.createTmpBackup(logCh, tmpBackupFile, tgt); err != nil {
 			logCh <- logger.Log(j.name, "").Errorf("Unable to create temp backups %s", tmpBackupFile)
 			errs = multierror.Append(errs, err)
 			continue
@@ -193,7 +198,7 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 		j.dumpedObjects[ofsPart] = interfaces.DumpObject{TmpFile: tmpBackupFile}
 
 		if !j.deferredCopying {
-			if err = j.storages.Delivery(logCh, j); err != nil {
+			if err := j.storages.Delivery(logCh, j); err != nil {
 				logCh <- logger.Log(j.name, "").Errorf("Failed to delivery backup. Errors: %v", err)
 				errs = multierror.Append(errs, err)
 			}

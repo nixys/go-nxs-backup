@@ -21,6 +21,7 @@ type confOpts struct {
 	Jobs            []jobCfg         `conf:"jobs"`
 	StorageConnects []storageConnect `conf:"storage_connects"`
 	IncludeCfgs     []string         `conf:"include_jobs_configs"`
+	WaitingTimeout  time.Duration    `conf:"waiting_timeout"`
 
 	LogFile  string `conf:"logfile" conf_extraopts:"default=stdout"`
 	LogLevel string `conf:"loglevel" conf_extraopts:"default=info"`
@@ -192,7 +193,6 @@ func confRead(confPath string) (confOpts, error) {
 	if len(c.IncludeCfgs) > 0 {
 		err = c.extraCfgsRead()
 		if err != nil {
-			fmt.Println("Configuration cannot be read.")
 			return c, err
 		}
 	}

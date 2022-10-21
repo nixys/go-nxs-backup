@@ -1,4 +1,4 @@
-package cmd
+package arg_cmd
 
 import appctx "github.com/nixys/nxs-go-appctx/v2"
 

@@ -1,4 +1,4 @@
-package cmd
+package arg_cmd
 
 import (
 	"fmt"
@@ -353,7 +353,13 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 	e.SetIndent(2)
 	defer func() { _ = e.Close() }()
 
-	return e.Encode(&job)
+	if err = e.Encode(&job); err != nil {
+		return err
+	}
+
+	fmt.Printf("Successfully added new sample config file:\n%s", cfgPath)
+
+	return nil
 }
 
 func genStorageOpts(storages map[string]string, incBackup bool) (sts []storageOptsYaml) {

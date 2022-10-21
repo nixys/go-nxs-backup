@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
@@ -142,15 +143,22 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 	var errs *multierror.Error
 
 	for ofsPart, tgt := range j.targets {
+		tmpBackupFile := misc.GetFileFullPath(tmpDir, ofsPart, "tar", "", tgt.gzip)
+		err := os.MkdirAll(path.Dir(tmpBackupFile), os.ModePerm)
+		if err != nil {
+			logCh <- logger.Log(j.name, "").Errorf("Unable to create tmp dir with next error: %s", err)
+			errs = multierror.Append(errs, err)
+			continue
+		}
 
-		if err := j.createTmpBackup(logCh, tmpDir, ofsPart, tgt); err != nil {
+		if err = j.createTmpBackup(logCh, tmpBackupFile, ofsPart, tgt); err != nil {
 			logCh <- logger.Log(j.name, "").Error("Failed to create temp backup.")
 			errs = multierror.Append(errs, err)
 			continue
 		}
 
 		if !j.deferredCopying {
-			if err := j.storages.Delivery(logCh, j); err != nil {
+			if err = j.storages.Delivery(logCh, j); err != nil {
 				logCh <- logger.Log(j.name, "").Errorf("Failed to delivery backup. Errors: %v", err)
 				errs = multierror.Append(errs, err)
 			}

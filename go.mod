@@ -13,6 +13,7 @@ require (
 	github.com/klauspost/pgzip v1.2.5
 	github.com/lib/pq v1.2.0
 	github.com/minio/minio-go/v7 v7.0.24
+	github.com/nightlyone/lockfile v1.0.0
 	github.com/nixys/nxs-go-appctx/v2 v2.0.0
 	github.com/nixys/nxs-go-conf v1.0.1
 	github.com/pkg/sftp v1.13.5-0.20211228200725-31aac3e1878d

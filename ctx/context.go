@@ -3,6 +3,7 @@ package ctx
 import (
 	"fmt"
 	"os"
+	"path"
 	"sync"
 
 	appctx "github.com/nixys/nxs-go-appctx/v2"
@@ -26,7 +27,7 @@ type Ctx struct {
 	Alerter      notifier.AlertServer
 	WG           *sync.WaitGroup
 
-	config confOpts
+	Cfg confOpts
 }
 
 // Init initiates application custom context
@@ -40,15 +41,27 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	// Read config file
 	conf, err := confRead(opts.Config)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("Failed to read configuration file with next errors:\n%v", err)
 		os.Exit(1)
 	}
-	c.config = conf
+	c.Cfg = conf
+
+	if conf.LogFile != "stdout" || conf.LogFile != "stderr" {
+		if err = os.MkdirAll(path.Dir(conf.LogFile), os.ModePerm); err != nil {
+			fmt.Printf("Failed to create logfile dir: %v", err)
+			os.Exit(1)
+		}
+		if f, err := os.Create(conf.LogFile); err != nil {
+			fmt.Printf("Failed to create logfile: %v", err)
+			os.Exit(1)
+		} else {
+			_ = f.Close()
+		}
+	}
 
 	storages, err := storagesInit(conf)
 	if err != nil {
-		fmt.Println("Failed init storages with next errors:")
-		fmt.Println(err)
+		fmt.Printf("Failed init storages with next errors:\n%v", err)
 		os.Exit(1)
 	}
 	for _, s := range storages {
@@ -57,8 +70,7 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 
 	c.Jobs, err = jobsInit(conf.Jobs, storages)
 	if err != nil {
-		fmt.Println("Failed init jobs with next errors:")
-		fmt.Println(err)
+		fmt.Printf("Failed init jobs with next errors:\n%v", err)
 		os.Exit(1)
 	}
 	for _, job := range c.Jobs {
@@ -76,14 +88,12 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 
 	c.Mailer, err = mailerInit(conf)
 	if err != nil {
-		fmt.Println("Failed init mail notifications with next errors:")
-		fmt.Println(err)
+		fmt.Printf("Failed init mail notifications with next errors:\n%v", err)
 		os.Exit(1)
 	}
 	c.Alerter, err = alerterInit(conf)
 	if err != nil {
-		fmt.Println("Failed init nxs-alert notifications with next errors:")
-		fmt.Println(err)
+		fmt.Printf("Failed init nxs-alert notifications with next errors:\n%v", err)
 		os.Exit(1)
 	}
 	c.WG = new(sync.WaitGroup)

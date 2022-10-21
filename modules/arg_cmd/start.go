@@ -1,4 +1,4 @@
-package cmd
+package arg_cmd
 
 import (
 	"fmt"
