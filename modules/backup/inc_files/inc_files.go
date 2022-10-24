@@ -3,6 +3,7 @@ package inc_files
 import (
 	"archive/tar"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -25,7 +26,6 @@ import (
 type job struct {
 	name            string
 	tmpDir          string
-	metadataDir     string
 	safetyBackup    bool
 	deferredCopying bool
 	storages        interfaces.Storages
@@ -174,6 +174,10 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, tmpDir string) error {
 
 	for ofsPart, tgt := range j.targets {
 		mtd, initMeta, err := j.getMetadata(logCh, ofsPart)
+		if err != nil {
+			errs = multierror.Append(errs, err)
+			continue
+		}
 
 		if initMeta {
 			logCh <- logger.Log(j.name, "").Info("Incremental backup will be reinitialized.")
@@ -232,6 +236,9 @@ func (j *job) getMetadata(logCh chan logger.LogRecord, ofsPart string) (mtd meta
 	if err != nil {
 		logCh <- logger.Log(j.name, "").Warnf("Failed to find backup year metadata. Error: %v", err)
 		initMeta = true
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
 	}
 
 	if !initMeta {

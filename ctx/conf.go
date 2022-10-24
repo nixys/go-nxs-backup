@@ -1,14 +1,11 @@
 package ctx
 
 import (
-	"fmt"
-	"net/mail"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	conf "github.com/nixys/nxs-go-conf"
 
 	"nxs-backup/misc"
@@ -250,20 +247,3 @@ func (c *confOpts) extraCfgsRead() error {
 }
 
 // validate checks if provided configuration valid
-func (c *confOpts) validate() error {
-
-	var errs *multierror.Error
-
-	// emails validation
-	if c.Notifications.Mail.Enabled {
-		mailList := c.Notifications.Mail.Recipients
-		for _, m := range mailList {
-			_, err := mail.ParseAddress(m)
-			if err != nil {
-				errs = multierror.Append(errs, fmt.Errorf("  failed to parse email \"%s\". %s", m, err))
-			}
-		}
-	}
-
-	return errs.ErrorOrNil()
-}

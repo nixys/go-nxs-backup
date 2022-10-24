@@ -6,15 +6,15 @@ import (
 	"os/exec"
 )
 
-// Result contains command exec Result
-type Result struct {
+// result contains command exec result
+type result struct {
 	Stdout   string
 	Stderr   string
 	ExitCode int
 }
 
 // Exec runs command string
-func Exec(command string, args ...string) (Result, error) {
+func Exec(command string, args ...string) (result, error) {
 
 	var stderr, stdout bytes.Buffer
 
@@ -28,7 +28,7 @@ func Exec(command string, args ...string) (Result, error) {
 
 	err := cmd.Run()
 
-	return Result{
+	return result{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		ExitCode: cmd.ProcessState.ExitCode(),

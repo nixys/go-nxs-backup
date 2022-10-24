@@ -61,7 +61,7 @@ func Init(p Params) (*Client, error) {
 	}
 
 	wdURL := regexp.MustCompile(`\/$`).ReplaceAllString(wd.URL, "")
-	if strings.HasPrefix(wdURL, "http://") == false && strings.HasPrefix(wdURL, "https://") == false {
+	if !strings.HasPrefix(wdURL, "http://") && !strings.HasPrefix(wdURL, "https://") {
 		wdURL = "https://" + wdURL
 	}
 	wd.URL = wdURL
@@ -79,7 +79,7 @@ func Init(p Params) (*Client, error) {
 		},
 	}
 
-	_, err := wd.GetQuotaAvailableBytes()
+	_, err := wd.getQuotaAvailableBytes()
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func Init(p Params) (*Client, error) {
 	return wd, nil
 }
 
-func (w *Client) GetQuotaAvailableBytes() (int, error) {
+func (w *Client) getQuotaAvailableBytes() (int, error) {
 
 	query := `<d:propfind xmlns:d='DAV:'>
 			<d:prop>

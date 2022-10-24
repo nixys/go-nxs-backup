@@ -39,7 +39,11 @@ func GetConnectAndDSN(params Params) (rdb *redis.Client, dsn string, err error) 
 
 	connUrl.RawQuery = opts.Encode()
 
-	opt, err := redis.ParseURL(connUrl.String())
+	var opt *redis.Options
+	opt, err = redis.ParseURL(connUrl.String())
+	if err != nil {
+		return
+	}
 	rdb = redis.NewClient(opt)
 
 	err = rdb.Ping(context.Background()).Err()

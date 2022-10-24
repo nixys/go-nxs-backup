@@ -1,6 +1,7 @@
 package notifier
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os/exec"
@@ -95,13 +96,13 @@ func (m *Mailer) Send(appCtx *appctx.AppContext, n logger.LogRecord, wg *sync.Wa
 func (m *Mailer) getMailBody(n logger.LogRecord) (b string) {
 	switch n.Level {
 	case logrus.DebugLevel:
-		b += fmt.Sprint("[DEBUG]:\n\n")
+		b += "[DEBUG]:\n\n"
 	case logrus.InfoLevel:
-		b += fmt.Sprint("[INFO]:\n\n")
+		b += "[INFO]:\n\n"
 	case logrus.WarnLevel:
-		b += fmt.Sprint("[WARNING]:\n\n")
+		b += "[WARNING]:\n\n"
 	case logrus.ErrorLevel:
-		b += fmt.Sprint("[ERROR]:\n\n")
+		b += "[ERROR]:\n\n"
 	}
 
 	if m.opts.ProjectName != "" {
@@ -123,20 +124,15 @@ func (m *Mailer) getMailBody(n logger.LogRecord) (b string) {
 }
 
 type localMail struct {
-	message string
 }
 
 func (l localMail) Send(_ string, _ []string, msg io.WriterTo) error {
-	_, _ = msg.WriteTo(l)
-	cmd := exec.Command("sendmail", "-t", "-oi", l.message)
+	buf := bytes.Buffer{}
+	_, _ = msg.WriteTo(&buf)
+	cmd := exec.Command("sendmail", "-t", "-oi", buf.String())
 	return cmd.Run()
 }
 
 func (l localMail) Close() error {
 	return nil
-}
-
-func (l localMail) Write(b []byte) (n int, err error) {
-	l.message = string(b)
-	return
 }

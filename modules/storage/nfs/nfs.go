@@ -245,14 +245,14 @@ func (n *NFS) deleteIncBackup(logCh chan logger.LogRecord, jobName, ofsPart stri
 
 		for _, dir := range dirs {
 			dirName := dir.Name()
-			rx := regexp.MustCompile("month_\\d\\d")
+			rx := regexp.MustCompile(`month_\d\d`)
 			if rx.MatchString(dirName) {
 				dirParts := strings.Split(dirName, "_")
 				dirMonth, _ := strconv.Atoi(dirParts[1])
 				if dirMonth < lastMonth {
 					if err = n.target.RemoveAll(path.Join(backupDir, dirName)); err != nil {
 						logCh <- logger.Log(jobName, n.name).Errorf("Failed to delete '%s' in dir '%s' with next error: %s",
-							dir.Name, backupDir, err)
+							dir.Name(), backupDir, err)
 						errs = multierror.Append(errs, err)
 					}
 				}
@@ -274,7 +274,7 @@ func (n *NFS) mkDir(dstPath string) error {
 		if fi.IsDir() {
 			return nil
 		}
-		return errors.New(fmt.Sprintf("%s is a file not a directory", dstPath))
+		return fmt.Errorf("%s is a file not a directory", dstPath)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("mkdir %q failed: %w", dstPath, err)
 	}

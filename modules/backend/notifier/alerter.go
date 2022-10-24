@@ -138,13 +138,13 @@ func (a *AlertServer) getMessage(n logger.LogRecord) (m string) {
 
 	switch n.Level {
 	case logrus.DebugLevel:
-		m += fmt.Sprint("[DEBUG]\n\n")
+		m += "[DEBUG]\n\n"
 	case logrus.InfoLevel:
-		m += fmt.Sprint("[INFO]\n\n")
+		m += "[INFO]\n\n"
 	case logrus.WarnLevel:
-		m += fmt.Sprint("⚠️[WARNING]\n\n")
+		m += "⚠️[WARNING]\n\n"
 	case logrus.ErrorLevel:
-		m += fmt.Sprint("‼️[ERROR]\n\n")
+		m += "‼️[ERROR]\n\n"
 	}
 
 	if a.projectName != "" {

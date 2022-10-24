@@ -254,7 +254,7 @@ func (f *FTP) deleteIncBackup(logCh chan logger.LogRecord, job, ofsPart string, 
 			logCh <- logger.Log(job, f.name).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
-		rx := regexp.MustCompile("month_\\d\\d")
+		rx := regexp.MustCompile(`month_\d\d`)
 		for _, dir := range dirs {
 			if rx.MatchString(dir.Name) {
 				dirParts := strings.Split(dir.Name, "_")

@@ -286,7 +286,7 @@ func (s *SFTP) deleteIncBackup(logCh chan logger.LogRecord, jobName, ofsPart str
 			logCh <- logger.Log(jobName, s.name).Errorf("Failed to get access to directory '%s' with next error: %v", backupDir, err)
 			return err
 		}
-		rx := regexp.MustCompile("month_\\d\\d")
+		rx := regexp.MustCompile(`month_\d\d`)
 		for _, dir := range dirs {
 			dirName := dir.Name()
 			if rx.MatchString(dirName) {

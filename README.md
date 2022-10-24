@@ -80,7 +80,9 @@ job names:
 Nxs-backup main settings block description.
 
 * `server_name`: the name of the server on which the nxs-backup is started.
-* `notifications`: 
+* `project_name`(optional): the name of the project, used for notifications.
+* `notifications`: contains notification channels parameters.
+  * 
 * `admin_mail`: admin email on which notifications about errors during backup process will be sent.
 * `client_mail`(optional): emails of additional users that shall also receive nxs-backup notifications.
 * `level_message`: level of informing users specified in the directive `client_mail`, two levels are allowed:

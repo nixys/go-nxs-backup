@@ -111,6 +111,9 @@ func checkConfigPath(configPath string) error {
 		}
 		defer func() { _ = f.Close() }()
 		_, err = f.WriteString(emptyConfig())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

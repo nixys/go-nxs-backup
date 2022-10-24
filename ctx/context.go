@@ -46,7 +46,7 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 	}
 	c.Cfg = conf
 
-	if conf.LogFile != "stdout" || conf.LogFile != "stderr" {
+	if conf.LogFile != "stdout" && conf.LogFile != "stderr" {
 		if err = os.MkdirAll(path.Dir(conf.LogFile), os.ModePerm); err != nil {
 			fmt.Printf("Failed to create logfile dir: %v", err)
 			os.Exit(1)
