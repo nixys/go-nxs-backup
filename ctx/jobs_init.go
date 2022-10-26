@@ -47,7 +47,7 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 			errs = multierror.Append(errs, fmt.Errorf("empty job name is unacceptable"))
 			continue
 		}
-		jobStorages, needToMakeBackup, stErrs := initJobStorages(storages, j.StoragesOptions)
+		jobStorages, needToMakeBackup, stErrs := initJobStorages(storages, j)
 		if len(stErrs) > 0 {
 			errs = multierror.Append(errs, stErrs...)
 			continue
@@ -373,19 +373,19 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 	return jobs, errs.ErrorOrNil()
 }
 
-func initJobStorages(storages map[string]interfaces.Storage, opts []storageOpts) (jobStorages interfaces.Storages, needToMakeBackup bool, errs []error) {
+func initJobStorages(storages map[string]interfaces.Storage, job jobCfg) (jobStorages interfaces.Storages, needToMakeBackup bool, errs []error) {
 
-	for _, stOpts := range opts {
+	for _, stOpts := range job.StoragesOptions {
 
 		// storages validation
 		s, ok := storages[stOpts.StorageName]
 		if !ok {
-			errs = append(errs, fmt.Errorf("unknown storage name: %s", stOpts.StorageName))
+			errs = append(errs, fmt.Errorf("%s: unknown storage name: %s", job.JobName, stOpts.StorageName))
 			continue
 		}
 
 		if stOpts.Retention.Days < 0 || stOpts.Retention.Weeks < 0 || stOpts.Retention.Months < 0 {
-			errs = append(errs, fmt.Errorf("retention period can't be negative"))
+			errs = append(errs, fmt.Errorf("%s: retention period can't be negative", job.JobName))
 		}
 
 		st := s.Clone()

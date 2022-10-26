@@ -35,6 +35,7 @@ func mailerInit(conf confOpts) (m notifier.Mailer, err error) {
 	var errs *multierror.Error
 
 	mailList := conf.Notifications.Mail.Recipients
+	mailList = append(mailList, conf.Notifications.Mail.From)
 	for _, a := range mailList {
 		_, err = mail.ParseAddress(a)
 		if err != nil {
@@ -53,6 +54,7 @@ func mailerInit(conf confOpts) (m notifier.Mailer, err error) {
 
 	m, err = notifier.MailerInit(notifier.MailOpts{
 		Enabled:      conf.Notifications.Mail.Enabled,
+		From:         conf.Notifications.Mail.From,
 		SmtpServer:   conf.Notifications.Mail.SmtpServer,
 		SmtpPort:     conf.Notifications.Mail.SmtpPort,
 		SmtpUser:     conf.Notifications.Mail.SmtpUser,

@@ -90,21 +90,18 @@ type s3Params struct {
 }
 
 type sftpParams struct {
-	User           string        `yaml:"user"`
-	Host           string        `yaml:"host"`
-	Port           int           `yaml:"port"`
-	Password       string        `yaml:"password"`
-	KeyFile        string        `yaml:"key_file"`
-	ConnectTimeout time.Duration `yaml:"connection_timeout"`
+	User     string `yaml:"user"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Password string `yaml:"password"`
+	KeyFile  string `yaml:"key_file"`
 }
 
 type ftpParams struct {
-	Host              string        `yaml:"host" `
-	User              string        `yaml:"user"`
-	Password          string        `yaml:"password"`
-	Port              int           `yaml:"port"`
-	ConnectCount      int           `yaml:"connection_count"`
-	ConnectionTimeout time.Duration `yaml:"connection_timeout"`
+	Host     string `yaml:"host" `
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Port     int    `yaml:"port"`
 }
 
 type nfsParams struct {
@@ -116,21 +113,19 @@ type nfsParams struct {
 }
 
 type webDavParams struct {
-	URL               string        `yaml:"url"`
-	Username          string        `yaml:"username"`
-	Password          string        `yaml:"password"`
-	OAuthToken        string        `yaml:"oauth_token"`
-	ConnectionTimeout time.Duration `yaml:"timeout"`
+	URL        string `yaml:"url"`
+	Username   string `yaml:"username"`
+	Password   string `yaml:"password"`
+	OAuthToken string `yaml:"oauth_token"`
 }
 
 type smbParams struct {
-	Host              string        `yaml:"host"`
-	Port              int           `yaml:"port"`
-	User              string        `yaml:"user"`
-	Password          string        `yaml:"password"`
-	Domain            string        `yaml:"domain"`
-	Share             string        `yaml:"share"`
-	ConnectionTimeout time.Duration `yaml:"timeout"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Domain   string `yaml:"domain"`
+	Share    string `yaml:"share"`
 }
 
 func GenerateConfig(appCtx *appctx.AppContext) error {
@@ -144,7 +139,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		JobName:         fmt.Sprintf("PROJECT-%s", params.Type),
 		JobType:         params.Type,
 		DeferredCopying: false,
-		SafetyBackup:    true,
+		SafetyBackup:    false,
 		TmpDir:          "/var/nxs-backup/dump_tmp",
 	}
 	cfgName := params.Type + ".conf"
@@ -357,7 +352,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		return err
 	}
 
-	fmt.Printf("Successfully added new sample config file:\n%s", cfgPath)
+	fmt.Printf("Successfully added new sample config file: %s\n", cfgPath)
 
 	return nil
 }

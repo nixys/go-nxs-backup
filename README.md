@@ -79,32 +79,80 @@ job names:
 
 Nxs-backup main settings block description.
 
-* `server_name`: the name of the server on which the nxs-backup is started.
-* `project_name`(optional): the name of the project, used for notifications.
-* `notifications`: contains notification channels parameters.
-  * 
-* `admin_mail`: admin email on which notifications about errors during backup process will be sent.
-* `client_mail`(optional): emails of additional users that shall also receive nxs-backup notifications.
-* `level_message`: level of informing users specified in the directive `client_mail`, two levels are allowed:
-  * *error* - send only notifications about errors during backup process;
-  * *debug* - send full nxs-backup performance log.
-* `block_io_read`(optional): limit reading speed from the block device on which backups are collected (MB/s).
-* `block_io_write`(optional): limit writing speed to a block device on which backups are collected (MB/s).
-* `blkio_weight`(optional): "weight" of the backup process when working with a block device on which backups are
-  collected (weight must be in range from 100 to 1000).
-* `logfile`(optional): path to log file. If not specified the default value will be used (
-  /var/log/nxs-backup/nxs-backup.log).
-* `waiting_timeout`(optional): waiting time for another nxs-backup to be completed. By default disabled.
+* `server_name`: the name of the server on which the nxs-backup is started
+* `project_name`(optional): the name of the project, used for notifications
+* `notifications`: contains notification channels parameters
+    * `nxs_alert`: nxs-alert notification channel parameters
+        * `enabled`: enables notification channel. Default: `false`
+        * `auth_key`: nxs-alert auth key.
+        * `nxs_alert_url`: URL of the nxs-alert service. Default: `https://nxs-alert.nixys.ru/v2/alert/pool`
+        * `message_level`: the level of messages to be notified about. Allowed levels: "debug", "info", "warning", "
+          error". Default: `warning`
+    * `mail`: contains notification channels parameters
+        * `enabled`: enables notification channel. Default: `false`
+        * `mail_from`: mailbox on behalf of which mails will be sent
+        * `smtp_server`(optional): SMTP host. If not specified email will be sent using `/usr/sbin/sendmail`
+        * `smtp_port`(optional): SMTP port
+        * `smtp_user`(optional): SMTP user login
+        * `smtp_password`(optional): SMTP user password
+        * `recipients`: list of notifications recipients emails. Default: `[]`
+        * `message_level`: the level of messages to be notified about. Allowed levels: "debug", "info", "warning", "
+          error". Default: `warning`
+* `storage_connects`: contains list of remote storages connections. Default: `[]`
+* `jobs`: contains list of backup jobs. Default: `[]`
+* `include_jobs_configs`: contains list of filepaths or glob patterns to job config files. Default: `["conf.d/*.conf"]`
+* `logfile`(optional): path to log file. Default: `stdout`
+* `waiting_timeout`(optional): time to waite in minutes for another nxs-backup to be completed. Default: disabled
 
+### `storage_connects`
+
+Nxs-backup storage connect settings block description.
+
+* `name`: unique storage name
+* `s3_params`(optional): S3 storage type connection parameters
+    * `bucket_name`: S3 bucket name
+    * `endpoint`: S3 endpoint
+    * `region`: S3 region
+    * `access_key_id`: S3 access key
+    * `secret_access_key`: S3 secret key
+* `scp_params`(optional), `sftp_params`(optional): scp/sftp storage type connection parameters
+    * `host`: SSH host
+    * `port`(optional): SSH port. Default: `22`
+    * `user`: SSH user
+    * `password`(optional): SSH password
+    * `key_file`(optional): path to SSH private key instead of password
+    * `connection_timeout`(optional): SSH connection timeout in seconds. Default: `10`
+* `ftp_params`(optional): ftp storage type connection parameters
+    * `host`: FTP host
+    * `port`(optional): FTP port. Default: `21`
+    * `user`: FTP user
+    * `password`: FTP password
+    * `connect_count`(optional): count of FTP connections opens to sever. Default: `5`
+    * `connection_timeout`(optional): FTP connection timeout in seconds. Default: `10`
+* `nfs_params`(optional): nfs storage type connection parameters
+    * `host`: NFS host
+    * `port`(optional): NFS port. Default: `111`
+    * `target`: path on NFS server where backups will be stored
+    * `UID`(optional): UID of NFS server user. Default: `1000`
+    * `GID`(optional): GID of NFS server user. Default: `1000`
+* `smb_params`(optional): smb storage type connection parameters
+    * `host`: SMB host
+    * `port`(optional): SMB port. Default: `445`
+    * `user`(optional): SMB user. Default: `Guest`
+    * `password`(optional): SMB password
+    * `share`: SMB share
+    * `domain`(optional): SMB domain
+    * `connection_timeout`(optional): SMB connection timeout in seconds. Default: `10`
+* `webdav_params`(optional): webdav storage type connection parameters
+    * `url`: WebDav URL
+    * `username`(optional): WebDav user
+    * `password`(optional): WebDav password
+    * `oauth_token`(optional): WebDav OAuth token
+    * `connection_timeout`(optional): WebDav connection timeout in seconds. Default: `10`
 
 ### `jobs`
 
-Nxs-backup jobs settings block description. Allows you to connect additional configuration files by specifying the
-following (you can use glob patterns):
-
-```yaml
-jobs: !include [conf.d/*.conf]
-```
+Nxs-backup job settings block description.
 
 * `job`: job name. This value is used to run the required job.
 * `type`: type of backup. It can take the following values:
@@ -112,16 +160,12 @@ jobs: !include [conf.d/*.conf]
       backups), *postgresql_basebackup*(PostgreSQL physical backups), *mongodb*, *redis*
     * *desc_files*, *inc_files*
     * *external*
-* `tmp_dir`: a local path to the temporary directory for backups.
-* `dump_cmd`(**only for *external* type**): full command to run an external script.
-* `safety_backup`(logical)(optional): Delete outdated backups after creating a new one. By default, "false". **
+* `tmp_dir`: a local path to the directory for temporary backups files.
+* `safety_backup`(optional)(logical): Delete outdated backups after creating a new one. Default: `false`. **
   IMPORTANT** Using of this option requires more disk space. Perform sure there is enough free space on the end device.
-* `deferred_copying_level` (optional)(int): Determines the level of deferred copying. The minimum value is 0 (by
-  default), copying occurs immediately after the temporary backup is created. The maximum value is 3, copying occurs
+* `deferred_copying`(optional)(logical): Determines that copying of backups to remote storages occurs
   after creation of all temporary backups defined in the task. **IMPORTANT** Using of this option requires more disk
   space for more level. Perform sure there is enough free space on the device where temporary backups stores.
-* `inc_months_to_store` (optional)(int, **only for *inc_files* type**): Determines how many months of incremental copies
-  will be stored relative to the current month. Can take values from 0 to 12, the default is 12.
 * `sources` (objects array): Specify one target or array of targets for backup:
     * `connect` (object, **Only for *databases* types**). It is necessary to fill a minimum set of keys to allow
       database connection:
@@ -148,35 +192,15 @@ jobs: !include [conf.d/*.conf]
     * `skip_backup_rotate`(**Only for *external* type**)(optional)(logicals): If creation of a local copy is not
       required, for example, in case of copying data to a remote server, rotation of local backups may be skipped with
       this option.
-* `storages`(objects array) specify one storage or array of storages to store archive:
-    * `storage`: type of storage. It can take the following values:
-        * *local*, *scp*, *ftp*, *smb* (via cifs), *nfs*, *webdav*, *s3*
-    * `enable`(logicals): enable or disable storage
-    * `backup_dir`: directory for storing backups. **IMPORTANT** For the following storages - *scp*, *nfs*, the
-      directory actually acts as a mount resource (used directly in the mount command), so you need to make sure it
-      exists on the remote server or `remote_mount_point` is defined, otherwise there will be an error. For other
-      storages - *local*, *ftp*, *smb*, *webdav*, *s3* this directory is already inside the environment, where we get
-      after mounting the resource, so it can be created by the program itself.
-    * `remote_mount_point`(**Only for *scp* and *nfs* storages**)(optional): Remote mounting point directory. This
-      directory will be used as the mount resource, so you need to make sure that it exists on the remote server and is
-      user `user` owned, otherwise an error will occur. The default is `backup_dir`.
-    * `host`: storage host.
-    * `port`: storage port.
-    * `user`: storage user.
-    * `password`: storage password.
-    * `extra_keys`(**Only for *nfs* storage**): extra keys for mount command.
-    * `bucket_name`(**Only for *s3* storage**): bucket name.
-    * `access_key_id`(**Only for *s3* storage**)(optional): S3 compatibility access key.
-    * `secret_access_key`(**Only for *s3* storage**)(optional): S3 compatibility secret key.
-    * `s3fs_opts`(**Only for *s3* storage**): extra keys for mount s3fs command. For example, for loading on custom s3
-      compatibility API server you need to add the following options '-o url=https://<custom_endpoint_url> -o
-      use_path_request_style'.
-    * `path_to_key`(**Only for *scp* storage**): path to ssh private key.
-    * `share`(**Only for *smb* storage**): share.
-    * `store`(objects, required for all after exception *inc_files* type backup):
-        * `days`: days to store backups.
-        * `weeks`: weeks to store backups.
-        * `month`: months to store backups.
+* `storages_options`: specify a list of storages to store backups
+    * `storage_name`: name of storage, defined in main config
+    * `backup_path`: path to directory for storing backups
+    * `retention`: defines retention for backups store
+        * `days`: days to store backups. Default: `7`
+        * `weeks`: weeks to store backups. Default: `5`
+        * `month`: months to store backups. For *inc_files* backup type determines how many months of incremental copies
+          will be stored relative to the current month. Can take values from 0 to 12. Default: `12`
+* `dump_cmd`: full command to run an external script. **Only for *external* backup type**
 
 ## Useful information
 

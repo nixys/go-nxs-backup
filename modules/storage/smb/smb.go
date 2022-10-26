@@ -41,7 +41,9 @@ type Params struct {
 }
 
 func Init(sName string, params Params) (s *SMB, err error) {
-	s.name = sName
+	s = &SMB{
+		name: sName,
+	}
 
 	conn, err := net.DialTimeout(
 		"tcp",

@@ -16,6 +16,7 @@ import (
 
 type MailOpts struct {
 	Enabled      bool
+	From         string
 	SmtpServer   string
 	SmtpPort     int
 	SmtpUser     string
@@ -66,7 +67,7 @@ func (m *Mailer) Send(appCtx *appctx.AppContext, n logger.LogRecord, wg *sync.Wa
 	defer func() { _ = sc.Close() }()
 
 	msg := gomail.NewMessage()
-	msg.SetHeader("From", m.opts.SmtpUser)
+	msg.SetHeader("From", m.opts.From)
 	msg.SetHeader("To", m.opts.Recipients...)
 
 	subjStr := fmt.Sprintf("[%s] Nxs-backup notification: server %q", n.Level, m.opts.ServerName)
@@ -129,7 +130,7 @@ type localMail struct {
 func (l localMail) Send(_ string, _ []string, msg io.WriterTo) error {
 	buf := bytes.Buffer{}
 	_, _ = msg.WriteTo(&buf)
-	cmd := exec.Command("sendmail", "-t", "-oi", buf.String())
+	cmd := exec.Command("/usr/sbin/sendmail", "-t", "-oi", buf.String())
 	return cmd.Run()
 }
 

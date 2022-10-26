@@ -33,6 +33,7 @@ type notifications struct {
 
 type mailConf struct {
 	Enabled      bool     `conf:"enabled"`
+	From         string   `conf:"mail_from"`
 	SmtpServer   string   `conf:"smtp_server"`
 	SmtpPort     int      `conf:"smtp_port"`
 	SmtpUser     string   `conf:"smtp_user"`
@@ -116,11 +117,11 @@ type storageConnect struct {
 }
 
 type s3Params struct {
-	BucketName      string `conf:"bucket_name" conf_extraopts:"required"`
-	AccessKeyID     string `conf:"access_key_id"`
-	SecretAccessKey string `conf:"secret_access_key"`
-	Endpoint        string `conf:"endpoint" conf_extraopts:"required"`
-	Region          string `conf:"region" conf_extraopts:"required"`
+	BucketName  string `conf:"bucket_name" conf_extraopts:"required"`
+	AccessKeyID string `conf:"access_key_id"`
+	SecretKey   string `conf:"secret_access_key"`
+	Endpoint    string `conf:"endpoint" conf_extraopts:"required"`
+	Region      string `conf:"region" conf_extraopts:"required"`
 }
 
 type sftpParams struct {
@@ -137,7 +138,7 @@ type ftpParams struct {
 	User              string        `conf:"user"`
 	Password          string        `conf:"password"`
 	Port              int           `conf:"port" conf_extraopts:"default=21"`
-	ConnectCount      int           `conf:"connection_count" conf_extraopts:"default=5"`
+	ConnectCount      int           `conf:"connect_count" conf_extraopts:"default=5"`
 	ConnectionTimeout time.Duration `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
@@ -154,7 +155,7 @@ type webDavParams struct {
 	Username          string        `conf:"username"`
 	Password          string        `conf:"password"`
 	OAuthToken        string        `conf:"oauth_token"`
-	ConnectionTimeout time.Duration `conf:"timeout" conf_extraopts:"default=10"`
+	ConnectionTimeout time.Duration `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
 type smbParams struct {
@@ -164,7 +165,7 @@ type smbParams struct {
 	Password          string        `conf:"password"`
 	Domain            string        `conf:"domain"`
 	Share             string        `conf:"share" conf_extraopts:"required"`
-	ConnectionTimeout time.Duration `conf:"timeout" conf_extraopts:"default=10"`
+	ConnectionTimeout time.Duration `conf:"connection_timeout" conf_extraopts:"default=10"`
 }
 
 func confRead(confPath string) (confOpts, error) {

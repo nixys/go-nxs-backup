@@ -27,7 +27,7 @@ func (f *LogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		}
 	}
 
-	out = fmt.Sprintf("%s [%s]", strings.ToUpper(entry.Level.String()), entry.Time.Format("2006-01-02 15:04:05.000+MST"))
+	out = fmt.Sprintf("%s [%s]", strings.ToUpper(entry.Level.String()), entry.Time.Format("2006-01-02 15:04:05.000"))
 	if job != "" {
 		out += fmt.Sprintf("[%s]", job)
 	}
