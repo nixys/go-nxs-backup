@@ -34,6 +34,10 @@ var messageLevels = map[string]logrus.Level{
 func mailerInit(conf confOpts) (m notifier.Mailer, err error) {
 	var errs *multierror.Error
 
+	if !conf.Notifications.Mail.Enabled {
+		return
+	}
+
 	mailList := conf.Notifications.Mail.Recipients
 	mailList = append(mailList, conf.Notifications.Mail.From)
 	for _, a := range mailList {
@@ -69,6 +73,10 @@ func mailerInit(conf confOpts) (m notifier.Mailer, err error) {
 }
 
 func alerterInit(conf confOpts) (a notifier.AlertServer, err error) {
+
+	if !conf.Notifications.NxsAlert.Enabled {
+		return
+	}
 
 	ml, ok := messageLevels[conf.Notifications.NxsAlert.MessageLevel]
 	if !ok {

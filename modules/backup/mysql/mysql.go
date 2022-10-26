@@ -245,7 +245,7 @@ func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpBackupFile string,
 
 	var args []string
 	// define command args with auth options
-	args = append(args, "--defaults-extra-file="+target.authFile)
+	args = append(args, "--defaults-file="+target.authFile)
 	// add tables exclude
 	if len(target.ignoreTables) > 0 {
 		args = append(args, target.ignoreTables...)
@@ -261,6 +261,8 @@ func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpBackupFile string,
 	cmd := exec.Command("mysqldump", args...)
 	cmd.Stdout = backupWriter
 	cmd.Stderr = &stderr
+
+	logCh <- logger.Log(j.name, "").Debugf("Dump cmd: %s", cmd.String())
 
 	if err = cmd.Start(); err != nil {
 		logCh <- logger.Log(j.name, "").Errorf("Unable to start mysqldump. Error: %s", err)

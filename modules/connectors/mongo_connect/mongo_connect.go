@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strconv"
-	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -13,18 +11,17 @@ import (
 )
 
 type Params struct {
-	User              string // Username
-	Passwd            string // Password (requires User)
-	Host              string // Network host
-	Port              string // Network port
-	RSName            string // Replica set name
-	RSAddr            string // Replica set address (requires RSName)
-	ConnectionTimeout time.Duration
+	User   string // Username
+	Passwd string // Password (requires User)
+	Host   string // Network host
+	Port   string // Network port
+	RSName string // Replica set name
+	RSAddr string // Replica set address (requires RSName)
 }
 
-// GetConnectAndDSN returns connect to mongo instance and dsn string
-func GetConnectAndDSN(params Params) (*mongo.Client, string, error) {
-
+// GetConnectAndHost returns connect to mongo instance and dsn string
+func GetConnectAndHost(params Params) (*mongo.Client, string, error) {
+	var host string
 	connUrl := url.URL{}
 	opts := url.Values{}
 
@@ -36,11 +33,12 @@ func GetConnectAndDSN(params Params) (*mongo.Client, string, error) {
 	if params.RSAddr != "" {
 		connUrl.Host = params.RSAddr
 		opts.Set("replicaSet", params.RSName)
+		host = params.RSName + `/` + params.RSAddr
 	} else {
-		connUrl.Host = fmt.Sprintf("%s:%s", params.Host, params.Port)
+		host = fmt.Sprintf("%s:%s", params.Host, params.Port)
+		connUrl.Host = host
 	}
 
-	opts.Set("connectTimeoutMS", strconv.FormatInt(int64(params.ConnectionTimeout*1000), 10))
 	connUrl.RawQuery = opts.Encode()
 
 	dsn := connUrl.String()
@@ -53,5 +51,5 @@ func GetConnectAndDSN(params Params) (*mongo.Client, string, error) {
 		return nil, "", err
 	}
 
-	return client, dsn, err
+	return client, host, err
 }

@@ -126,9 +126,10 @@ func emptyConfig() string {
 notifications:
   mail:
     enabled: false
+    mail_from: backup@localhost
     smtp_server: ''
     smtp_port: 465
-    smtp_user: backup@localhost
+    smtp_user: ''
     smtp_password: ''
     recipients:
     - root@localhost

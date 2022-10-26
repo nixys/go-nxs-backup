@@ -149,7 +149,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, false)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some desc files source name",
+				Name: "desc_files",
 				Gzip: true,
 				Targets: []string{
 					"/var/www/html/www.site.ru",
@@ -167,7 +167,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, true)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some inc files source name",
+				Name: "inc_files",
 				Gzip: true,
 				Targets: []string{
 					"/var/www/html/www.site.ru",
@@ -185,7 +185,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, false)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some mysql source name",
+				Name: "mysql",
 				Gzip: true,
 				Connect: srcConnectYaml{
 					DBHost:     "mysql",
@@ -210,7 +210,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, false)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some mysql extradbbackup source name",
+				Name: "mysql_xtrabackup",
 				Gzip: true,
 				Connect: srcConnectYaml{
 					DBHost:     "mysql",
@@ -236,7 +236,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, false)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some psql source name",
+				Name: "psql",
 				Gzip: true,
 				Connect: srcConnectYaml{
 					DBHost:     "psql",
@@ -259,7 +259,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, false)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some psql_basebackup source name",
+				Name: "psql_basebackup",
 				Gzip: true,
 				Connect: srcConnectYaml{
 					DBHost:     "psql",
@@ -277,7 +277,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, false)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some mongodb source name",
+				Name: "mongodb",
 				Gzip: true,
 				Connect: srcConnectYaml{
 					DBHost:      "mongo1",
@@ -302,7 +302,7 @@ func GenerateConfig(appCtx *appctx.AppContext) error {
 		job.StoragesOptions = genStorageOpts(params.Storages, false)
 		job.Sources = []sourceYaml{
 			{
-				Name: "Some redis source name",
+				Name: "redis",
 				Gzip: true,
 				Connect: srcConnectYaml{
 					DBHost:     "redis",

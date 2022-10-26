@@ -166,7 +166,7 @@ Nxs-backup job settings block description.
 * `deferred_copying`(optional)(logical): Determines that copying of backups to remote storages occurs
   after creation of all temporary backups defined in the task. **IMPORTANT** Using of this option requires more disk
   space for more level. Perform sure there is enough free space on the device where temporary backups stores.
-* `sources` (objects array): Specify one target or array of targets for backup:
+* `sources`(objects array): Specify one target or array of targets for backup:
     * `connect` (object, **Only for *databases* types**). It is necessary to fill a minimum set of keys to allow
       database connection:
         * `db_host`: DB host.

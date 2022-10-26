@@ -32,17 +32,17 @@ type s3 struct {
 }
 
 type Params struct {
-	BucketName      string `conf:"bucket_name" conf_extraopts:"required"`
-	AccessKeyID     string `conf:"access_key_id"`
-	SecretAccessKey string `conf:"secret_access_key"`
-	Endpoint        string `conf:"endpoint" conf_extraopts:"required"`
-	Region          string `conf:"region" conf_extraopts:"required"`
+	BucketName  string
+	AccessKeyID string
+	SecretKey   string
+	Endpoint    string
+	Region      string
 }
 
 func Init(name string, params Params) (*s3, error) {
 
 	s3Client, err := minio.New(params.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(params.AccessKeyID, params.SecretAccessKey, ""),
+		Creds:  credentials.NewStaticV4(params.AccessKeyID, params.SecretKey, ""),
 		Secure: true,
 	})
 	if err != nil {

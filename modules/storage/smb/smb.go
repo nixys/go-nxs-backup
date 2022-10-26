@@ -69,20 +69,9 @@ func Init(sName string, params Params) (s *SMB, err error) {
 		return s, err
 	}
 
-	names, err := s.session.ListSharenames()
+	s.share, err = s.session.Mount(params.Share)
 	if err != nil {
 		return s, fmt.Errorf("Failed to init '%s' SMB storage. Error: %v ", sName, err)
-	}
-	for _, name := range names {
-		if strings.HasSuffix(name, "$") {
-			continue
-		}
-		if params.Share == name {
-			s.share, err = s.session.Mount(name)
-			if err != nil {
-				return s, fmt.Errorf("Failed to init '%s' SMB storage. Error: %v ", sName, err)
-			}
-		}
 	}
 
 	return

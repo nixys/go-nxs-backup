@@ -32,7 +32,8 @@ type job struct {
 }
 
 type target struct {
-	dsn               string
+	host              string
+	connOpts          mongo_connect.Params
 	dbName            string
 	ignoreCollections []string
 	extraKeys         []string
@@ -80,7 +81,7 @@ func Init(jp JobParams) (interfaces.Job, error) {
 
 	for _, src := range jp.Sources {
 
-		conn, dsn, err := mongo_connect.GetConnectAndDSN(src.ConnectParams)
+		conn, host, err := mongo_connect.GetConnectAndHost(src.ConnectParams)
 		if err != nil {
 			return nil, fmt.Errorf("Job `%s` init failed. MongoDB connect error: %s ", jp.Name, err)
 		}
@@ -109,9 +110,10 @@ func Init(jp JobParams) (interfaces.Job, error) {
 				j.targets[src.Name+"/"+db] = target{
 					dbName:            db,
 					ignoreCollections: ignoreCollections,
-					dsn:               dsn,
+					host:              host,
 					extraKeys:         src.ExtraKeys,
 					gzip:              src.Gzip,
+					connOpts:          src.ConnectParams,
 				}
 
 			}
@@ -219,8 +221,10 @@ func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpBackupFile string,
 	var args []string
 	// define command args
 	// auth url
-	args = append(args, "--uri="+target.dsn)
+	args = append(args, "--host="+target.host)
 	args = append(args, "--authenticationDatabase=admin")
+	args = append(args, "--username="+target.connOpts.User)
+	args = append(args, "--password="+target.connOpts.Passwd)
 	// add db name
 	args = append(args, "--db="+target.dbName)
 	// add collections exclude
@@ -238,6 +242,8 @@ func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpBackupFile string,
 	cmd := exec.Command("mongodump", args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
+	logCh <- logger.Log(j.name, "").Debugf("Dump cmd: %s", cmd.String())
 
 	if err := cmd.Start(); err != nil {
 		logCh <- logger.Log(j.name, "").Errorf("Unable to start mongodump. Error: %s", err)

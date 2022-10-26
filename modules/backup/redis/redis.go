@@ -192,6 +192,8 @@ func (j *job) createTmpBackup(logCh chan logger.LogRecord, tmpDir, tgtName strin
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	logCh <- logger.Log(j.name, "").Debugf("Dump cmd: %s", cmd.String())
+
 	if err := cmd.Start(); err != nil {
 		logCh <- logger.Log(j.name, "").Errorf("Unable to start redis-cli. Error: %s", err)
 		return err

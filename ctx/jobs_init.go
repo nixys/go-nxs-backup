@@ -287,13 +287,12 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 
 				sources = append(sources, mongodump.SourceParams{
 					ConnectParams: mongo_connect.Params{
-						User:              src.Connect.DBUser,
-						Passwd:            src.Connect.DBPassword,
-						Host:              src.Connect.DBHost,
-						Port:              src.Connect.DBPort,
-						RSName:            src.Connect.MongoRSName,
-						RSAddr:            src.Connect.MongoRSAddr,
-						ConnectionTimeout: src.Connect.ConnectTimeout,
+						User:   src.Connect.DBUser,
+						Passwd: src.Connect.DBPassword,
+						Host:   src.Connect.DBHost,
+						Port:   src.Connect.DBPort,
+						RSName: src.Connect.MongoRSName,
+						RSAddr: src.Connect.MongoRSAddr,
 					},
 					Name:               src.Name,
 					Gzip:               src.Gzip,

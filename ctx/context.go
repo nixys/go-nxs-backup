@@ -51,12 +51,6 @@ func (c *Ctx) Init(opts appctx.CustomContextFuncOpts) (appctx.CfgData, error) {
 			fmt.Printf("Failed to create logfile dir: %v", err)
 			os.Exit(1)
 		}
-		if f, err := os.Create(conf.LogFile); err != nil {
-			fmt.Printf("Failed to create logfile: %v", err)
-			os.Exit(1)
-		} else {
-			_ = f.Close()
-		}
 	}
 
 	storages, err := storagesInit(conf)

@@ -117,6 +117,8 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, _ string) (err error) {
 		cmd.Env = envs
 	}
 
+	logCh <- logger.Log(j.name, "").Debugf("Dump cmd: %s", cmd.String())
+
 	if err = cmd.Start(); err != nil {
 		logCh <- logger.Log(j.name, "").Errorf("Unable to start %s. Error: %s", j.dumpCmd, err)
 		return err
