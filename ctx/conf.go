@@ -51,45 +51,43 @@ type nxsAlertConf struct {
 }
 
 type jobCfg struct {
-	JobName         string        `conf:"job_name" conf_extraopts:"required"`
-	JobType         string        `conf:"type" conf_extraopts:"required"`
-	TmpDir          string        `conf:"tmp_dir"`
-	DumpCmd         string        `conf:"dump_cmd"`
-	SafetyBackup    bool          `conf:"safety_backup" conf_extraopts:"default=false"`
-	DeferredCopying bool          `conf:"deferred_copying" conf_extraopts:"default=false"`
-	Sources         []sourceCfg   `conf:"sources"`
-	StoragesOptions []storageOpts `conf:"storages_options"`
+	JobName          string        `conf:"job_name" conf_extraopts:"required"`
+	JobType          string        `conf:"type" conf_extraopts:"required"`
+	TmpDir           string        `conf:"tmp_dir"`
+	SafetyBackup     bool          `conf:"safety_backup" conf_extraopts:"default=false"`
+	DeferredCopying  bool          `conf:"deferred_copying" conf_extraopts:"default=false"`
+	Sources          []sourceCfg   `conf:"sources"`
+	StoragesOptions  []storageOpts `conf:"storages_options"`
+	DumpCmd          string        `conf:"dump_cmd"`
+	SkipBackupRotate bool          `conf:"skip_backup_rotate" conf_extraopts:"default=false"` // used by external
 }
 
 type sourceCfg struct {
-	Name               string `conf:"name" conf_extraopts:"required"`
-	Connect            sourceConnect
-	SpecialKeys        string   `conf:"special_keys"`
-	Targets            []string `conf:"targets"`
-	TargetDbs          []string `conf:"target_dbs"`
-	TargetCollections  []string `conf:"target_collections"`
-	Excludes           []string `conf:"excludes"`
-	ExcludeDbs         []string `conf:"exclude_dbs"`
-	ExcludeCollections []string `conf:"exclude_collections"`
-	Gzip               bool     `conf:"gzip" conf_extraopts:"default=false"`
-	SaveAbsPath        bool     `conf:"save_abs_path" conf_extraopts:"default=false"`
-	IsSlave            bool     `conf:"is_slave" conf_extraopts:"default=false"`
-	ExtraKeys          string   `conf:"extra_keys"`
-	SkipBackupRotate   bool     `conf:"skip_backup_rotate" conf_extraopts:"default=false"` // used by external
-	PrepareXtrabackup  bool     `conf:"prepare_xtrabackup" conf_extraopts:"default=false"`
+	Name               string        `conf:"name" conf_extraopts:"required"`
+	Connect            sourceConnect `conf:"connect"`
+	Targets            []string      `conf:"targets"`
+	TargetDBs          []string      `conf:"target_dbs"`
+	TargetCollections  []string      `conf:"target_collections"`
+	Excludes           []string      `conf:"excludes"`
+	ExcludeDBs         []string      `conf:"exclude_dbs"`
+	ExcludeCollections []string      `conf:"exclude_collections"`
+	ExtraKeys          string        `conf:"db_extra_keys"`
+	IsSlave            bool          `conf:"is_slave" conf_extraopts:"default=false"`
+	Gzip               bool          `conf:"gzip" conf_extraopts:"default=false"`
+	SaveAbsPath        bool          `conf:"save_abs_path" conf_extraopts:"default=true"`
+	PrepareXtrabackup  bool          `conf:"prepare_xtrabackup" conf_extraopts:"default=false"`
 }
 
 type sourceConnect struct {
-	AuthFile    string `conf:"auth_file"`
-	DBHost      string `conf:"db_host"`
-	DBPort      string `conf:"db_port"`
-	Socket      string `conf:"socket"`
-	SSLMode     string `conf:"ssl_mode" conf_extraopts:"default=require"`
-	DBUser      string `conf:"db_user"`
-	DBPassword  string `conf:"db_password"`
-	PathToConf  string `conf:"path_to_conf"`
-	MongoRSName string `conf:"mongo_replica_set_name"`
-	MongoRSAddr string `conf:"mongo_replica_set_address"`
+	DBHost        string `conf:"db_host"`
+	DBPort        string `conf:"db_port"`
+	Socket        string `conf:"socket"`
+	DBUser        string `conf:"db_user"`
+	DBPassword    string `conf:"db_password"`
+	MySQLAuthFile string `conf:"mysql_auth_file"`
+	PSQLSSLMode   string `conf:"psql_ssl_mode" conf_extraopts:"default=require"`
+	MongoRSName   string `conf:"mongo_replica_set_name"`
+	MongoRSAddr   string `conf:"mongo_replica_set_address"`
 }
 
 type storageOpts struct {

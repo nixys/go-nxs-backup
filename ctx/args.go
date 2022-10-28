@@ -143,6 +143,6 @@ jobs: []
 
 include_jobs_configs: ["conf.d/*.conf"]
 
-logfile: stdout
+logfile: /var/log/nxs-backup/nxs-backup.log
 `
 }

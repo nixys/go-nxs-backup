@@ -17,6 +17,7 @@ type job struct {
 	envs             map[string]string
 	needToMakeBackup bool
 	safetyBackup     bool
+	skipBackupRotate bool
 	storages         interfaces.Storages
 	dumpedObjects    map[string]interfaces.DumpObject
 }
@@ -28,6 +29,7 @@ type JobParams struct {
 	Envs             map[string]string
 	NeedToMakeBackup bool
 	SafetyBackup     bool
+	SkipBackupRotate bool
 	Storages         interfaces.Storages
 }
 
@@ -40,6 +42,7 @@ func Init(jp JobParams) (interfaces.Job, error) {
 		envs:             jp.Envs,
 		needToMakeBackup: jp.NeedToMakeBackup,
 		safetyBackup:     jp.SafetyBackup,
+		skipBackupRotate: jp.SkipBackupRotate,
 		storages:         jp.Storages,
 		dumpedObjects:    make(map[string]interfaces.DumpObject),
 	}, nil
@@ -88,6 +91,9 @@ func (j *job) NeedToUpdateIncMeta() bool {
 }
 
 func (j *job) DeleteOldBackups(logCh chan logger.LogRecord, ofsPath string) error {
+	if j.skipBackupRotate {
+		return nil
+	}
 	return j.storages.DeleteOldBackups(logCh, j, ofsPath)
 }
 
@@ -130,6 +136,12 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, _ string) (err error) {
 		return err
 	}
 
+	logCh <- logger.Log(j.name, "").Infof("Dumping completed")
+
+	if j.skipBackupRotate {
+		return
+	}
+
 	var out struct {
 		FullPath string `json:"full_path"`
 	}
@@ -139,7 +151,6 @@ func (j *job) DoBackup(logCh chan logger.LogRecord, _ string) (err error) {
 		return err
 	}
 
-	logCh <- logger.Log(j.name, "").Infof("Dumping completed")
 	logCh <- logger.Log(j.name, "").Debugf("Created temp backup %s.", out.FullPath)
 
 	j.dumpedObjects[j.name] = interfaces.DumpObject{TmpFile: out.FullPath}

@@ -120,7 +120,7 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 
 				sources = append(sources, mysql.SourceParams{
 					ConnectParams: mysql_connect.Params{
-						AuthFile: src.Connect.AuthFile,
+						AuthFile: src.Connect.MySQLAuthFile,
 						User:     src.Connect.DBUser,
 						Passwd:   src.Connect.DBPassword,
 						Host:     src.Connect.DBHost,
@@ -128,7 +128,7 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 						Socket:   src.Connect.Socket,
 					},
 					Name:      src.Name,
-					TargetDBs: src.Targets,
+					TargetDBs: src.TargetDBs,
 					Excludes:  src.Excludes,
 					Gzip:      src.Gzip,
 					IsSlave:   src.IsSlave,
@@ -162,7 +162,7 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 
 				sources = append(sources, mysql_xtrabackup.SourceParams{
 					ConnectParams: mysql_connect.Params{
-						AuthFile: src.Connect.AuthFile,
+						AuthFile: src.Connect.MySQLAuthFile,
 						User:     src.Connect.DBUser,
 						Passwd:   src.Connect.DBPassword,
 						Host:     src.Connect.DBHost,
@@ -170,7 +170,7 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 						Socket:   src.Connect.Socket,
 					},
 					Name:      src.Name,
-					TargetDBs: src.Targets,
+					TargetDBs: src.TargetDBs,
 					Excludes:  src.Excludes,
 					Gzip:      src.Gzip,
 					IsSlave:   src.IsSlave,
@@ -210,10 +210,10 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 						Host:    src.Connect.DBHost,
 						Port:    src.Connect.DBPort,
 						Socket:  src.Connect.Socket,
-						SSLMode: src.Connect.SSLMode,
+						SSLMode: src.Connect.PSQLSSLMode,
 					},
 					Name:      src.Name,
-					TargetDBs: src.Targets,
+					TargetDBs: src.TargetDBs,
 					Excludes:  src.Excludes,
 					Gzip:      src.Gzip,
 					IsSlave:   src.IsSlave,
@@ -252,7 +252,7 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 						Host:    src.Connect.DBHost,
 						Port:    src.Connect.DBPort,
 						Socket:  src.Connect.Socket,
-						SSLMode: src.Connect.SSLMode,
+						SSLMode: src.Connect.PSQLSSLMode,
 					},
 					Name:      src.Name,
 					Gzip:      src.Gzip,
@@ -297,8 +297,8 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 					Name:               src.Name,
 					Gzip:               src.Gzip,
 					ExtraKeys:          extraKeys,
-					TargetDBs:          src.TargetDbs,
-					ExcludeDBs:         src.ExcludeDbs,
+					TargetDBs:          src.TargetDBs,
+					ExcludeDBs:         src.ExcludeDBs,
 					ExcludeCollections: src.ExcludeCollections,
 				})
 			}
@@ -355,6 +355,7 @@ func jobsInit(cfgJobs []jobCfg, storages map[string]interfaces.Storage) ([]inter
 				DumpCmd:          j.DumpCmd,
 				NeedToMakeBackup: needToMakeBackup,
 				SafetyBackup:     j.SafetyBackup,
+				SkipBackupRotate: j.SkipBackupRotate,
 				Storages:         jobStorages,
 			})
 			if err != nil {
