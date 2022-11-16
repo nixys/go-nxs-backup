@@ -6,8 +6,8 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/sirupsen/logrus"
-	"nxs-backup/interfaces"
 
+	"nxs-backup/interfaces"
 	"nxs-backup/modules/backend/notifier"
 )
 
