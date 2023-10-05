@@ -38,7 +38,7 @@ file per job). Config files are in YAML format. For details, see Settings.
 ### Generate your Configurations Files for job
 
 You can generate your conﬁguration ﬁle for a job by running the script with the command ***generate*** and *-S*/*
---storages* (map of storages), *-T*/*--type* (type of backup), *-P*/*--path* (path to generated file) options. The
+--storages* (map of storages), *-T*/*--type* (type of backup), *-O*/*--out-path* (path to generated file) options. The
 script will generate conﬁguration ﬁle for the job and print result:
 
  ```bash
