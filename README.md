@@ -1,5 +1,11 @@
 # Nxs-backup
 
+## ⚠️ Deprecation and Archive Notice
+
+This project is deprecated. Instead ot this new versions of `nxs-backup` available [here](https://github.com/nixys/nxs-backup).
+
+---
+
 Nxs-backup is an open source backup software for most popular GNU/Linux distributions. Features of Nxs-backup include
 amongst others:
 
